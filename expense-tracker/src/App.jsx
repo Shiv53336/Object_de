@@ -1,0 +1,579 @@
+import { useState, useEffect } from "react";
+import {
+  PieChart, Pie, Cell,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer
+} from "recharts";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const CURRENCIES = { "₹": "INR", "$": "USD", "€": "EUR", "£": "GBP" };
+
+const DEFAULT_CATEGORIES = [
+  { name: "Food & Dining",     emoji: "🍜", color: "#E07A5F", budget: 8000 },
+  { name: "Transport",         emoji: "🛺", color: "#3D405B", budget: 3000 },
+  { name: "Shopping",          emoji: "🛍️", color: "#81B29A", budget: 5000 },
+  { name: "Bills & Utilities", emoji: "💡", color: "#F2CC8F", budget: 6000 },
+  { name: "Entertainment",     emoji: "🎮", color: "#7B68EE", budget: 2000 },
+  { name: "Health",            emoji: "💊", color: "#E88D97", budget: 2000 },
+];
+
+const PAYMENT_TYPES = [
+  { label: "UPI",  icon: "📱", color: "#6C63FF" },
+  { label: "Card", icon: "💳", color: "#E07A5F" },
+  { label: "Cash", icon: "💵", color: "#81B29A" },
+];
+
+const RAND_COLORS = [
+  "#E07A5F","#3D405B","#81B29A","#F2CC8F","#7B68EE",
+  "#E88D97","#6C63FF","#F4A261","#2A9D8F","#E76F51",
+];
+
+const DEFAULT_BUDGET = 26000;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function useLocalStorage(key, initial) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : initial;
+    } catch {
+      return initial;
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+  return [value, setValue];
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dateLabel(dateStr) {
+  const today     = todayStr();
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (dateStr === today)     return "Today";
+  if (dateStr === yesterday) return "Yesterday";
+  return dateStr;
+}
+
+function getBudgetColor(pct) {
+  if (pct < 60) return "#81B29A";
+  if (pct < 85) return "#F2CC8F";
+  return "#E07A5F";
+}
+
+function paymentColor(p) {
+  if (p === "UPI")  return { bg: "#6C63FF18", fg: "#6C63FF" };
+  if (p === "Card") return { bg: "#E07A5F18", fg: "#E07A5F" };
+  if (p === "Cash") return { bg: "#81B29A18", fg: "#81B29A" };
+  return { bg: "#EDE8E1", fg: "#8B8580" };
+}
+
+function paymentIcon(p) {
+  if (p === "UPI")  return "📱";
+  if (p === "Card") return "💳";
+  if (p === "Cash") return "💵";
+  return "💸";
+}
+
+// ─── Header ───────────────────────────────────────────────────────────────────
+
+function Header({ currency, setCurrency }) {
+  return (
+    <div style={{ padding: "24px 20px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div>
+        <h1 style={{ fontFamily: "'Caveat', cursive", fontSize: 32, fontWeight: 600, color: "#2D2A26", margin: 0, letterSpacing: -0.5 }}>
+          My Expenses
+        </h1>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#8B8580", margin: "2px 0 0" }}>
+          {new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+        </p>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <select
+          value={currency}
+          onChange={e => setCurrency(e.target.value)}
+          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, background: "#fff", border: "1px solid #E0D8CF", borderRadius: 10, padding: "6px 10px", color: "#2D2A26", cursor: "pointer", outline: "none" }}
+        >
+          {Object.entries(CURRENCIES).map(([sym, code]) => (
+            <option key={sym} value={sym}>{sym} {code}</option>
+          ))}
+        </select>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#3D405B", display: "flex", alignItems: "center", justifyContent: "center", color: "#FAF6F1", fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 600 }}>
+          H
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Quick Add ────────────────────────────────────────────────────────────────
+
+function QuickAdd({ currency, categories, onAdd }) {
+  const [amount,    setAmount]    = useState("");
+  const [cat,       setCat]       = useState(categories[0]?.name || "");
+  const [note,      setNote]      = useState("");
+  const [payment,   setPayment]   = useState("UPI");
+  const [customPay, setCustomPay] = useState("");
+
+  useEffect(() => {
+    if (categories.length && !categories.find(c => c.name === cat)) {
+      setCat(categories[0].name);
+    }
+  }, [categories]);
+
+  const handleAdd = () => {
+    const num = parseFloat(amount);
+    if (!num || num <= 0) return;
+    const catObj = categories.find(c => c.name === cat) || categories[0];
+    onAdd({
+      id:       Date.now(),
+      amount:   num,
+      category: cat,
+      note:     note || cat,
+      date:     todayStr(),
+      emoji:    catObj?.emoji || "💸",
+      payment:  payment === "Other" ? (customPay || "Other") : payment,
+    });
+    setAmount("");
+    setNote("");
+  };
+
+  return (
+    <div style={{ margin: "0 16px 16px", background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 2px 12px rgba(45,42,38,0.06)", border: "1px solid #EDE8E1" }}>
+      <p style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: "#8B8580", margin: "0 0 12px" }}>✏️ Quick Entry</p>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", background: "#FAF6F1", borderRadius: 10, padding: "10px 12px", border: "1px solid #EDE8E1" }}>
+          <span style={{ fontSize: 18, marginRight: 6, color: "#8B8580" }}>{currency}</span>
+          <input
+            type="number"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleAdd()}
+            placeholder="0"
+            style={{ border: "none", background: "transparent", fontSize: 20, fontFamily: "'Crimson Pro', serif", fontWeight: 600, color: "#2D2A26", width: "100%", outline: "none" }}
+          />
+        </div>
+        <select
+          value={cat}
+          onChange={e => setCat(e.target.value)}
+          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, background: "#FAF6F1", border: "1px solid #EDE8E1", borderRadius: 10, padding: "10px 10px", color: "#2D2A26", outline: "none" }}
+        >
+          {categories.map(c => (
+            <option key={c.name} value={c.name}>{c.emoji} {c.name.split(" ")[0]}</option>
+          ))}
+        </select>
+        <button
+          onClick={handleAdd}
+          style={{ background: "#3D405B", color: "#FAF6F1", border: "none", borderRadius: 10, padding: "10px 16px", fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+        >
+          Add
+        </button>
+      </div>
+
+      <input
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        onKeyDown={e => e.key === "Enter" && handleAdd()}
+        placeholder="Add a note..."
+        style={{ marginTop: 8, width: "100%", border: "1px solid #EDE8E1", background: "#FAF6F1", borderRadius: 8, padding: "8px 12px", fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#2D2A26", outline: "none", boxSizing: "border-box" }}
+      />
+
+      <div style={{ marginTop: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#8B8580", marginRight: 2 }}>Paid via:</span>
+        {PAYMENT_TYPES.map(pt => (
+          <button
+            key={pt.label}
+            onClick={() => { setPayment(pt.label); setCustomPay(""); }}
+            style={{ padding: "5px 12px", borderRadius: 20, border: payment === pt.label ? `2px solid ${pt.color}` : "1px solid #EDE8E1", background: payment === pt.label ? `${pt.color}14` : "#FAF6F1", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: payment === pt.label ? 600 : 400, color: payment === pt.label ? pt.color : "#8B8580", cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+          >
+            {pt.icon} {pt.label}
+          </button>
+        ))}
+        <button
+          onClick={() => setPayment("Other")}
+          style={{ padding: "5px 12px", borderRadius: 20, border: payment === "Other" ? "2px solid #3D405B" : "1px solid #EDE8E1", background: payment === "Other" ? "#3D405B14" : "#FAF6F1", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: payment === "Other" ? 600 : 400, color: payment === "Other" ? "#3D405B" : "#8B8580", cursor: "pointer" }}
+        >
+          ✍️ Other
+        </button>
+        {payment === "Other" && (
+          <input
+            placeholder="e.g. Wallet, Bank Transfer..."
+            value={customPay}
+            onChange={e => setCustomPay(e.target.value)}
+            style={{ flex: 1, minWidth: 140, padding: "5px 10px", borderRadius: 20, border: "1px solid #3D405B", background: "#FAF6F1", fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#2D2A26", outline: "none" }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Budget Card ──────────────────────────────────────────────────────────────
+
+function BudgetCard({ currency, totalSpent, totalBudget }) {
+  const remaining = totalBudget - totalSpent;
+  const pct       = Math.min(100, Math.round((totalSpent / totalBudget) * 100));
+  const color     = getBudgetColor(pct);
+  const now       = new Date();
+  const daysLeft  = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate();
+
+  return (
+    <div style={{ margin: "0 16px 16px", background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 2px 12px rgba(45,42,38,0.06)", border: "1px solid #EDE8E1" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+        <p style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: "#8B8580", margin: 0 }}>📊 Monthly Budget</p>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color, fontWeight: 600, background: `${color}18`, padding: "3px 8px", borderRadius: 6 }}>
+          {pct}% used
+        </span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+        <span style={{ fontFamily: "'Crimson Pro', serif", fontSize: 26, fontWeight: 700, color: "#2D2A26" }}>
+          {currency}{totalSpent.toLocaleString()}
+        </span>
+        <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#8B8580", alignSelf: "flex-end" }}>
+          of {currency}{totalBudget.toLocaleString()}
+        </span>
+      </div>
+      <div style={{ height: 10, background: "#EDE8E1", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${color}, ${color}cc)`, borderRadius: 10, transition: "width 0.8s ease" }} />
+      </div>
+      <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: remaining >= 0 ? "#81B29A" : "#E07A5F", margin: "8px 0 0", fontWeight: 500 }}>
+        {remaining >= 0
+          ? `💰 ${currency}${remaining.toLocaleString()} remaining`
+          : `⚠️ Over budget by ${currency}${Math.abs(remaining).toLocaleString()}`}
+        {" "}• {daysLeft} days left
+      </p>
+    </div>
+  );
+}
+
+// ─── Category Breakdown ───────────────────────────────────────────────────────
+
+function CategoryBreakdown({ currency, categories, expenses, onAddCategory }) {
+  const [chartType,   setChartType]   = useState("donut");
+  const [showAddCat,  setShowAddCat]  = useState(false);
+  const [newEmoji,    setNewEmoji]    = useState("");
+  const [newName,     setNewName]     = useState("");
+  const [newBudget,   setNewBudget]   = useState("");
+
+  const catSpend = categories.map(c => ({
+    ...c,
+    spent: expenses.filter(e => e.category === c.name).reduce((s, e) => s + e.amount, 0),
+  }));
+
+  const pieData = catSpend.filter(c => c.spent > 0).map(c => ({ name: c.name, value: c.spent, color: c.color }));
+
+  const handleSave = () => {
+    if (!newName.trim()) return;
+    onAddCategory({
+      name:   newName.trim(),
+      emoji:  newEmoji || "🏷️",
+      color:  RAND_COLORS[Math.floor(Math.random() * RAND_COLORS.length)],
+      budget: parseFloat(newBudget) || 1000,
+    });
+    setNewEmoji(""); setNewName(""); setNewBudget(""); setShowAddCat(false);
+  };
+
+  return (
+    <div style={{ margin: "0 16px 16px", background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 2px 12px rgba(45,42,38,0.06)", border: "1px solid #EDE8E1" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <p style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: "#8B8580", margin: 0 }}>🏷️ By Category</p>
+        <div style={{ display: "flex", background: "#FAF6F1", borderRadius: 8, padding: 2 }}>
+          {["donut", "bar"].map(t => (
+            <button key={t} onClick={() => setChartType(t)} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, padding: "4px 10px", border: "none", borderRadius: 6, background: chartType === t ? "#3D405B" : "transparent", color: chartType === t ? "#FAF6F1" : "#8B8580", cursor: "pointer", fontWeight: 500 }}>
+              {t === "donut" ? "Donut" : "Bar"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {chartType === "donut" ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <ResponsiveContainer width="50%" height={160}>
+            <PieChart>
+              <Pie data={pieData.length ? pieData : [{ name: "empty", value: 1, color: "#EDE8E1" }]} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" stroke="none">
+                {(pieData.length ? pieData : [{ color: "#EDE8E1" }]).map((entry, i) => <Cell key={i} fill={entry.color} />)}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{ flex: 1 }}>
+            {catSpend.map(c => (
+              <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
+                <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#5A5550", flex: 1 }}>{c.emoji} {c.name.split(" ")[0]}</span>
+                <span style={{ fontFamily: "'Crimson Pro', serif", fontSize: 12, fontWeight: 600, color: "#2D2A26" }}>{currency}{c.spent.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={160}>
+          <BarChart data={catSpend.map(c => ({ name: c.emoji, spent: c.spent, color: c.color }))}>
+            <XAxis dataKey="name" tick={{ fontSize: 14 }} axisLine={false} tickLine={false} />
+            <YAxis hide />
+            <Tooltip formatter={v => [`${currency}${v.toLocaleString()}`, "Spent"]} contentStyle={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, borderRadius: 8, border: "1px solid #EDE8E1" }} />
+            <Bar dataKey="spent" radius={[6, 6, 0, 0]}>
+              {catSpend.map((c, i) => <Cell key={i} fill={c.color} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+
+      <button onClick={() => setShowAddCat(!showAddCat)} style={{ marginTop: 10, width: "100%", padding: "8px", background: "transparent", border: "1px dashed #CCC5BB", borderRadius: 8, fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#8B8580", cursor: "pointer" }}>
+        + Add Custom Category
+      </button>
+
+      {showAddCat && (
+        <div style={{ marginTop: 8, padding: 12, background: "#FAF6F1", borderRadius: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input value={newEmoji} onChange={e => setNewEmoji(e.target.value)} placeholder="🏷️" maxLength={2} style={{ width: 40, padding: "6px", borderRadius: 6, border: "1px solid #EDE8E1", textAlign: "center", fontSize: 16, outline: "none", background: "#fff" }} />
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Category name" style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid #EDE8E1", fontFamily: "'DM Sans', sans-serif", fontSize: 13, outline: "none", background: "#fff" }} />
+          <input type="number" value={newBudget} onChange={e => setNewBudget(e.target.value)} placeholder="Budget" style={{ width: 80, padding: "6px 10px", borderRadius: 6, border: "1px solid #EDE8E1", fontFamily: "'DM Sans', sans-serif", fontSize: 13, outline: "none", background: "#fff" }} />
+          <button onClick={handleSave} style={{ background: "#81B29A", color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Save</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Weekly Trend ─────────────────────────────────────────────────────────────
+
+function WeeklyTrend({ currency, expenses }) {
+  const [activeTab, setActiveTab] = useState("daily");
+
+  const weeklyData = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const dateStr = d.toISOString().slice(0, 10);
+    const amount  = expenses.filter(e => e.date === dateStr).reduce((s, e) => s + e.amount, 0);
+    return { day: d.toLocaleDateString("en-US", { weekday: "short" }), amount };
+  });
+
+  const totalWeek = weeklyData.reduce((s, d) => s + d.amount, 0);
+  const avgDay    = Math.round(totalWeek / 7);
+  const highest   = weeklyData.reduce((a, b) => a.amount >= b.amount ? a : b, { day: "—", amount: 0 });
+
+  return (
+    <div style={{ margin: "0 16px 16px", background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 2px 12px rgba(45,42,38,0.06)", border: "1px solid #EDE8E1" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <p style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: "#8B8580", margin: 0 }}>📈 This Week</p>
+        <div style={{ display: "flex", background: "#FAF6F1", borderRadius: 8, padding: 2 }}>
+          {["daily", "weekly", "monthly"].map(t => (
+            <button key={t} onClick={() => setActiveTab(t)} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, padding: "4px 8px", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500, background: activeTab === t ? "#3D405B" : "transparent", color: activeTab === t ? "#FAF6F1" : "#8B8580" }}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={120}>
+        <BarChart data={weeklyData}>
+          <XAxis dataKey="day" tick={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, fill: "#8B8580" }} axisLine={false} tickLine={false} />
+          <YAxis hide />
+          <Tooltip formatter={v => [`${currency}${v.toLocaleString()}`, ""]} contentStyle={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, borderRadius: 8, border: "1px solid #EDE8E1" }} />
+          <Bar dataKey="amount" fill="#3D405B" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+      <div style={{ display: "flex", justifyContent: "space-around", marginTop: 8, padding: "8px 0", borderTop: "1px solid #EDE8E1" }}>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580", margin: 0 }}>Avg/day</p>
+          <p style={{ fontFamily: "'Crimson Pro', serif", fontSize: 18, fontWeight: 700, color: "#2D2A26", margin: "2px 0 0" }}>{currency}{avgDay.toLocaleString()}</p>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580", margin: 0 }}>This week</p>
+          <p style={{ fontFamily: "'Crimson Pro', serif", fontSize: 18, fontWeight: 700, color: "#2D2A26", margin: "2px 0 0" }}>{currency}{totalWeek.toLocaleString()}</p>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580", margin: 0 }}>Highest</p>
+          <p style={{ fontFamily: "'Crimson Pro', serif", fontSize: 18, fontWeight: 700, color: "#E07A5F", margin: "2px 0 0" }}>{highest.amount > 0 ? highest.day : "—"}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Expense List ─────────────────────────────────────────────────────────────
+
+function ExpenseList({ currency, expenses, onDelete }) {
+  const grouped = expenses
+    .slice()
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+    .reduce((acc, exp) => {
+      const label = dateLabel(exp.date);
+      if (!acc[label]) acc[label] = [];
+      acc[label].push(exp);
+      return acc;
+    }, {});
+
+  if (expenses.length === 0) {
+    return (
+      <div style={{ margin: "0 16px 16px", textAlign: "center", padding: 32, color: "#8B8580", fontFamily: "'DM Sans', sans-serif", fontSize: 14 }}>
+        No expenses yet. Add your first one above! 👆
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ margin: "0 16px 16px" }}>
+      <p style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: "#8B8580", margin: "0 0 10px" }}>📝 Recent Entries</p>
+      {Object.entries(grouped).map(([date, exps]) => (
+        <div key={date} style={{ marginBottom: 12 }}>
+          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, color: "#8B8580", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+            {date}
+          </p>
+          {exps.map(exp => {
+            const pc = paymentColor(exp.payment);
+            return (
+              <div key={exp.id} style={{ background: "#fff", borderRadius: 12, padding: "12px 14px", marginBottom: 6, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 1px 4px rgba(45,42,38,0.04)", border: "1px solid #EDE8E1" }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: "#FAF6F1", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                  {exp.emoji}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 500, color: "#2D2A26", margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {exp.note}
+                  </p>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                    <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580" }}>{exp.category}</span>
+                    <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: pc.bg, color: pc.fg, letterSpacing: 0.3 }}>
+                      {paymentIcon(exp.payment)} {exp.payment}
+                    </span>
+                  </div>
+                </div>
+                <span style={{ fontFamily: "'Crimson Pro', serif", fontSize: 16, fontWeight: 700, color: "#E07A5F", flexShrink: 0 }}>
+                  −{currency}{exp.amount.toLocaleString()}
+                </span>
+                <button onClick={() => onDelete(exp.id)} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#CCC5BB", padding: "0 0 0 4px", flexShrink: 0 }}>
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Settings View ────────────────────────────────────────────────────────────
+
+function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onClearAll }) {
+  const [budgetInput, setBudgetInput] = useState(totalBudget);
+
+  return (
+    <div style={{ margin: "0 16px 16px" }}>
+      <p style={{ fontFamily: "'Caveat', cursive", fontSize: 22, color: "#2D2A26", margin: "0 0 16px" }}>⚙️ Settings</p>
+
+      <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1", marginBottom: 12 }}>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#5A5550", margin: "0 0 8px" }}>Currency</p>
+        <select value={currency} onChange={e => setCurrency(e.target.value)} style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, background: "#FAF6F1", border: "1px solid #EDE8E1", borderRadius: 10, padding: "8px 12px", color: "#2D2A26", outline: "none", width: "100%" }}>
+          {Object.entries(CURRENCIES).map(([sym, code]) => (
+            <option key={sym} value={sym}>{sym} {code}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1", marginBottom: 12 }}>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#5A5550", margin: "0 0 8px" }}>Monthly Budget</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type="number" value={budgetInput} onChange={e => setBudgetInput(e.target.value)} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "1px solid #EDE8E1", fontFamily: "'DM Sans', sans-serif", fontSize: 14, outline: "none", background: "#FAF6F1" }} />
+          <button onClick={() => setTotalBudget(parseFloat(budgetInput) || DEFAULT_BUDGET)} style={{ background: "#3D405B", color: "#FAF6F1", border: "none", borderRadius: 10, padding: "8px 16px", fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save</button>
+        </div>
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1", marginBottom: 12 }}>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#5A5550", margin: "0 0 4px" }}>Offline Ready</p>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#81B29A", margin: "0 0 0" }}>✅ All data saved locally on your device. No internet needed.</p>
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1" }}>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#5A5550", margin: "0 0 8px" }}>Data</p>
+        <button onClick={onClearAll} style={{ width: "100%", padding: "10px", background: "#E07A5F18", border: "1px solid #E07A5F44", borderRadius: 10, fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#E07A5F", cursor: "pointer" }}>
+          🗑️ Clear All Expenses
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Bottom Nav ───────────────────────────────────────────────────────────────
+
+function BottomNav({ selectedView, setSelectedView }) {
+  const items = [
+    { icon: "🏠", label: "Home",       key: "home"     },
+    { icon: "📊", label: "Stats",      key: "stats"    },
+    { icon: "🏷️", label: "Categories", key: "cats"     },
+    { icon: "⚙️", label: "Settings",   key: "settings" },
+  ];
+  return (
+    <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", borderTop: "1px solid #EDE8E1", display: "flex", justifyContent: "space-around", padding: "8px 0 12px", zIndex: 100 }}>
+      {items.map(item => (
+        <button key={item.key} onClick={() => setSelectedView(item.key)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: selectedView === item.key ? 1 : 0.5 }}>
+          <span style={{ fontSize: 20 }}>{item.icon}</span>
+          <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, color: selectedView === item.key ? "#3D405B" : "#8B8580", fontWeight: selectedView === item.key ? 600 : 400 }}>
+            {item.label}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const [currency,     setCurrency]     = useLocalStorage("et_currency",   "₹");
+  const [totalBudget,  setTotalBudget]  = useLocalStorage("et_budget",     DEFAULT_BUDGET);
+  const [expenses,     setExpenses]     = useLocalStorage("et_expenses",   []);
+  const [categories,   setCategories]   = useLocalStorage("et_categories", DEFAULT_CATEGORIES);
+  const [selectedView, setSelectedView] = useState("home");
+
+  const totalSpent  = expenses.reduce((s, e) => s + e.amount, 0);
+  const addExpense  = (exp) => setExpenses(prev => [exp, ...prev]);
+  const delExpense  = (id)  => setExpenses(prev => prev.filter(e => e.id !== id));
+  const addCategory = (cat) => setCategories(prev => [...prev, cat]);
+  const clearAll    = () => {
+    if (window.confirm("Clear all expenses? This cannot be undone.")) setExpenses([]);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #FAF6F1 0%, #F3EDE4 100%)", fontFamily: "'Crimson Pro', 'Georgia', serif", maxWidth: 480, margin: "0 auto", position: "relative", paddingBottom: 80 }}>
+      <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;600&family=Caveat:wght@500;600&display=swap" rel="stylesheet" />
+
+      <Header currency={currency} setCurrency={setCurrency} />
+
+      {selectedView === "home" && (
+        <>
+          <QuickAdd      currency={currency} categories={categories} onAdd={addExpense} />
+          <BudgetCard    currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
+          <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} />
+          <WeeklyTrend   currency={currency} expenses={expenses} />
+          <ExpenseList   currency={currency} expenses={expenses} onDelete={delExpense} />
+        </>
+      )}
+
+      {selectedView === "stats" && (
+        <>
+          <BudgetCard        currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
+          <WeeklyTrend       currency={currency} expenses={expenses} />
+          <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} />
+        </>
+      )}
+
+      {selectedView === "cats" && (
+        <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} />
+      )}
+
+      {selectedView === "settings" && (
+        <SettingsView
+          currency={currency}     setCurrency={setCurrency}
+          totalBudget={totalBudget} setTotalBudget={setTotalBudget}
+          onClearAll={clearAll}
+        />
+      )}
+
+      <BottomNav selectedView={selectedView} setSelectedView={setSelectedView} />
+    </div>
+  );
+}

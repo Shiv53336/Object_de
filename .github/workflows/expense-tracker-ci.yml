@@ -1,0 +1,125 @@
+name: Expense Tracker — Build & Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - "claude/**"
+    paths:
+      - "expense-tracker/**"
+      - ".github/workflows/expense-tracker-ci.yml"
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - "expense-tracker/**"
+      - ".github/workflows/expense-tracker-ci.yml"
+  workflow_dispatch: # allow manual trigger from GitHub UI
+
+defaults:
+  run:
+    working-directory: expense-tracker
+
+jobs:
+  build:
+    name: Build Web App
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Node setup ──────────────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: expense-tracker/package-lock.json
+
+      # ── Install ─────────────────────────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      # ── Build ────────────────────────────────────────────────────────────────
+      - name: Build production bundle
+        run: npm run build
+
+      # ── Zip the dist folder ──────────────────────────────────────────────────
+      - name: Zip build output
+        run: |
+          cd dist
+          zip -r ../expense-tracker-build.zip .
+          cd ..
+          echo "Build zipped: $(du -sh expense-tracker-build.zip | cut -f1)"
+
+      # ── Upload artifact (downloadable from GitHub Actions UI) ────────────────
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: expense-tracker-web-build
+          path: expense-tracker/expense-tracker-build.zip
+          retention-days: 30
+
+      # ── Summary ──────────────────────────────────────────────────────────────
+      - name: Build summary
+        run: |
+          echo "## Expense Tracker Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
+          du -sh dist/assets/* 2>/dev/null | while read size file; do
+            echo "| \`$(basename $file)\` | $size |" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Artifact:** \`expense-tracker-web-build\` (retained 30 days)" >> $GITHUB_STEP_SUMMARY
+
+  # ── Release job: only on push to main/master ────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: expense-tracker-web-build
+          path: ./release-assets
+
+      - name: Generate release tag
+        id: tag
+        run: echo "tag=expense-tracker-v$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Expense Tracker — ${{ steps.tag.outputs.tag }}"
+          body: |
+            ## Expense Tracker Web Build
+
+            PWA build — works completely offline after first load.
+
+            ### How to use
+            1. Download `expense-tracker-build.zip`
+            2. Unzip and serve the files with any static server:
+               ```bash
+               npx serve .
+               ```
+            3. Or deploy the unzipped folder to Netlify / Vercel / GitHub Pages.
+
+            > This is an isolated release. It does **not** affect the APK pipeline.
+          files: ./release-assets/expense-tracker-build.zip
+          draft: false
+          prerelease: false
