@@ -545,20 +545,14 @@ export default function App() {
 
       {selectedView === "home" && (
         <>
-          <QuickAdd      currency={currency} categories={categories} onAdd={addExpense} />
-          <BudgetCard    currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
-          <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} />
-          <WeeklyTrend   currency={currency} expenses={expenses} />
-          <ExpenseList   currency={currency} expenses={expenses} onDelete={delExpense} />
+          <QuickAdd    currency={currency} categories={categories} onAdd={addExpense} />
+          <BudgetCard  currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
+          <ExpenseList currency={currency} expenses={expenses} onDelete={delExpense} />
         </>
       )}
 
       {selectedView === "stats" && (
-        <>
-          <BudgetCard        currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
-          <WeeklyTrend       currency={currency} expenses={expenses} />
-          <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} />
-        </>
+        <WeeklyTrend currency={currency} expenses={expenses} />
       )}
 
       {selectedView === "cats" && (
