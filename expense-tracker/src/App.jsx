@@ -507,7 +507,7 @@ function BottomNav({ selectedView, setSelectedView }) {
     { icon: "⚙️", label: "Settings",   key: "settings" },
   ];
   return (
-    <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", borderTop: "1px solid #EDE8E1", display: "flex", justifyContent: "space-around", padding: "8px 0 12px", zIndex: 100 }}>
+    <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", borderTop: "1px solid #EDE8E1", display: "flex", justifyContent: "space-around", paddingTop: 8, paddingLeft: 0, paddingRight: 0, paddingBottom: "calc(12px + env(safe-area-inset-bottom))", zIndex: 100 }}>
       {items.map(item => (
         <button key={item.key} onClick={() => setSelectedView(item.key)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: selectedView === item.key ? 1 : 0.5 }}>
           <span style={{ fontSize: 20 }}>{item.icon}</span>
@@ -538,7 +538,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #FAF6F1 0%, #F3EDE4 100%)", fontFamily: "'Crimson Pro', 'Georgia', serif", maxWidth: 480, margin: "0 auto", position: "relative", paddingBottom: 80 }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg, #FAF6F1 0%, #F3EDE4 100%)", fontFamily: "'Crimson Pro', 'Georgia', serif", maxWidth: 480, margin: "0 auto", position: "relative", paddingBottom: "calc(80px + env(safe-area-inset-bottom))" }}>
       <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;600&family=Caveat:wght@500;600&display=swap" rel="stylesheet" />
 
       <Header currency={currency} setCurrency={setCurrency} />
