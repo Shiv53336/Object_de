@@ -3,16 +3,14 @@ name: Expense Tracker — Build & Release
 on:
   push:
     branches:
-      - main
-      - master
+      - expense-tracker
       - "claude/**"
     paths:
       - "expense-tracker/**"
       - ".github/workflows/expense-tracker-ci.yml"
   pull_request:
     branches:
-      - main
-      - master
+      - expense-tracker
     paths:
       - "expense-tracker/**"
       - ".github/workflows/expense-tracker-ci.yml"
@@ -48,6 +46,14 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
+      # ── Upload dist for APK job ──────────────────────────────────────────────
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: expense-tracker-dist
+          path: expense-tracker/dist
+          retention-days: 1
+
       # ── Zip the dist folder ──────────────────────────────────────────────────
       - name: Zip build output
         run: |
@@ -56,33 +62,96 @@ jobs:
           cd ..
           echo "Build zipped: $(du -sh expense-tracker-build.zip | cut -f1)"
 
-      # ── Upload artifact (downloadable from GitHub Actions UI) ────────────────
-      - name: Upload build artifact
+      # ── Upload web artifact ──────────────────────────────────────────────────
+      - name: Upload web build artifact
         uses: actions/upload-artifact@v4
         with:
           name: expense-tracker-web-build
           path: expense-tracker/expense-tracker-build.zip
           retention-days: 30
 
-      # ── Summary ──────────────────────────────────────────────────────────────
-      - name: Build summary
-        run: |
-          echo "## Expense Tracker Build" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-          du -sh dist/assets/* 2>/dev/null | while read size file; do
-            echo "| \`$(basename $file)\` | $size |" >> $GITHUB_STEP_SUMMARY
-          done
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Artifact:** \`expense-tracker-web-build\` (retained 30 days)" >> $GITHUB_STEP_SUMMARY
-
-  # ── Release job: only on push to main/master ────────────────────────────────
-  release:
-    name: Create GitHub Release
+  apk:
+    name: Build Android APK
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Java ─────────────────────────────────────────────────────────────────
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ── Node ─────────────────────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: expense-tracker/package-lock.json
+
+      # ── Install ─────────────────────────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      # ── Download pre-built dist ──────────────────────────────────────────────
+      - name: Download dist
+        uses: actions/download-artifact@v4
+        with:
+          name: expense-tracker-dist
+          path: expense-tracker/dist
+
+      # ── Capacitor: add Android platform ─────────────────────────────────────
+      - name: Add Android platform
+        run: npx cap add android
+
+      # ── Capacitor: sync web assets into Android ──────────────────────────────
+      - name: Sync web assets
+        run: npx cap sync android
+
+      # ── Android SDK ──────────────────────────────────────────────────────────
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ── Build debug APK ──────────────────────────────────────────────────────
+      - name: Build debug APK
+        working-directory: expense-tracker/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      # ── Upload APK artifact ──────────────────────────────────────────────────
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: expense-tracker-debug-apk
+          path: expense-tracker/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      # ── Summary ──────────────────────────────────────────────────────────────
+      - name: APK summary
+        run: |
+          APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+          APK_SIZE=$(du -sh "$APK_PATH" | cut -f1)
+          echo "## Expense Tracker APK" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **File** | \`app-debug.apk\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Size** | $APK_SIZE |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Type** | Debug (unsigned) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⬇️ Download from the **Artifacts** section above." >> $GITHUB_STEP_SUMMARY
+
+  # ── Release job: only on push to expense-tracker branch ─────────────────────
+  release:
+    name: Create GitHub Release
+    needs: apk
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/expense-tracker'
 
     permissions:
       contents: write
@@ -91,10 +160,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download build artifact
+      - name: Download web build
         uses: actions/download-artifact@v4
         with:
           name: expense-tracker-web-build
+          path: ./release-assets
+
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: expense-tracker-debug-apk
           path: ./release-assets
 
       - name: Generate release tag
@@ -107,19 +182,27 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Expense Tracker — ${{ steps.tag.outputs.tag }}"
           body: |
-            ## Expense Tracker Web Build
+            ## Expense Tracker Release
 
-            PWA build — works completely offline after first load.
+            ### Downloads
+            | File | Description |
+            |------|-------------|
+            | `app-debug.apk` | Android APK — install directly on your phone |
+            | `expense-tracker-build.zip` | Web build — deploy anywhere |
 
-            ### How to use
-            1. Download `expense-tracker-build.zip`
-            2. Unzip and serve the files with any static server:
-               ```bash
-               npx serve .
-               ```
-            3. Or deploy the unzipped folder to Netlify / Vercel / GitHub Pages.
+            ### Install APK on Android
+            1. Download `app-debug.apk`
+            2. On your phone: **Settings → Install unknown apps** → allow your browser/file manager
+            3. Open the downloaded APK and tap **Install**
+
+            ### Web deployment
+            1. Download `expense-tracker-build.zip` and unzip
+            2. Serve with: `npx serve .`
+            3. Or deploy to Netlify / Vercel / GitHub Pages
 
             > This is an isolated release. It does **not** affect the APK pipeline.
-          files: ./release-assets/expense-tracker-build.zip
+          files: |
+            ./release-assets/expense-tracker-build.zip
+            ./release-assets/app-debug.apk
           draft: false
           prerelease: false
