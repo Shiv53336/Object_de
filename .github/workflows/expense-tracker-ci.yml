@@ -8,12 +8,14 @@ on:
       - "claude/**"
     paths:
       - "expense-tracker/**"
+      - ".github/workflows/expense-tracker-ci.yml"
   pull_request:
     branches:
       - main
       - master
     paths:
       - "expense-tracker/**"
+      - ".github/workflows/expense-tracker-ci.yml"
   workflow_dispatch: # allow manual trigger from GitHub UI
 
 defaults:
