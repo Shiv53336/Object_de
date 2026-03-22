@@ -1,0 +1,136 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'claude/**'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # allow manual trigger from GitHub UI
+
+jobs:
+  build-apk:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Java (required by Android build tools) ────────────────────
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # ── 3. Set up Flutter ───────────────────────────────────────────────────
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      # ── 4. Verify Flutter & Dart versions ───────────────────────────────────
+      - name: Flutter version info
+        run: flutter --version
+
+      # ── 5. Generate Flutter project boilerplate (android/ ios/ folders) ────
+      - name: Create Flutter project scaffold
+        working-directory: flutter_expense_tracker
+        run: |
+          flutter create . \
+            --project-name=expense_tracker \
+            --org=com.expensetracker \
+            --platforms=android \
+            --overwrite \
+            2>/dev/null || true
+          echo "✅ Flutter scaffold created"
+
+      # ── 6. Install dependencies ─────────────────────────────────────────────
+      - name: Flutter pub get
+        working-directory: flutter_expense_tracker
+        run: flutter pub get
+
+      # ── 7. Analyze code (non-blocking — warns but doesn't fail) ─────────────
+      - name: Flutter analyze
+        working-directory: flutter_expense_tracker
+        run: flutter analyze --no-fatal-infos || true
+
+      # ── 8. Build release APK ─────────────────────────────────────────────────
+      - name: Build release APK
+        working-directory: flutter_expense_tracker
+        run: |
+          flutter build apk \
+            --release \
+            --no-shrink \
+            --build-name=1.0.0 \
+            --build-number=${{ github.run_number }}
+
+      # ── 9. Rename APK with version info ─────────────────────────────────────
+      - name: Rename APK
+        run: |
+          mkdir -p artifacts
+          cp flutter_expense_tracker/build/app/outputs/flutter-apk/app-release.apk \
+             artifacts/expense-tracker-v1.0.0-build${{ github.run_number }}.apk
+          echo "APK size: $(du -sh artifacts/*.apk)"
+
+      # ── 10. Upload APK as workflow artifact ──────────────────────────────────
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: expense-tracker-apk-build${{ github.run_number }}
+          path: artifacts/*.apk
+          retention-days: 30
+
+      # ── 11. Create GitHub Release on push to main ────────────────────────────
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0-build${{ github.run_number }}
+          name: "Expense Tracker v1.0.0 (Build ${{ github.run_number }})"
+          body: |
+            ## 📱 My Expense Tracker — Android APK
+
+            ### How to install on your phone:
+            1. Download `expense-tracker-v1.0.0-build${{ github.run_number }}.apk` below
+            2. On your Android phone → Settings → Install unknown apps → Allow
+            3. Open the downloaded APK and tap Install
+            4. Done! ✅
+
+            ### What's included:
+            - ✏️ Quick expense entry
+            - 📊 Budget tracking with progress bar
+            - 🏷️ Category breakdown (donut & bar charts)
+            - 📈 Weekly spending trends
+            - ⚙️ Currency & budget settings
+            - 💾 Offline-first (data saved on device)
+
+            ---
+            Built from commit: ${{ github.sha }}
+          files: artifacts/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 12. Summary ──────────────────────────────────────────────────────────
+      - name: Build Summary
+        run: |
+          echo "## ✅ APK Build Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Number | ${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| APK Name | expense-tracker-v1.0.0-build${{ github.run_number }}.apk |" >> $GITHUB_STEP_SUMMARY
+          echo "| APK Size | $(du -sh artifacts/*.apk | cut -f1) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📥 **Download the APK from the Artifacts section above**" >> $GITHUB_STEP_SUMMARY
