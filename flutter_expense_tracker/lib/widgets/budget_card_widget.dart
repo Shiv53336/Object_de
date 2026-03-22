@@ -11,6 +11,8 @@ class BudgetCardWidget extends StatelessWidget {
     final provider    = context.watch<AppProvider>();
     final currency    = provider.currency;
     final totalSpent  = provider.totalSpent;
+    final totalIncome = provider.totalIncome;
+    final netBalance  = provider.netBalance;
     final totalBudget = provider.totalBudget;
     final remaining   = totalBudget - totalSpent;
     final pct         = (totalSpent / totalBudget * 100).clamp(0, 100);
@@ -34,7 +36,8 @@ class BudgetCardWidget extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('📊 Monthly Budget', style: TextStyle(fontSize: 18, color: kSubtext, fontStyle: FontStyle.italic)),
+              const Text('📊 Monthly Budget',
+                  style: TextStyle(fontSize: 18, color: kSubtext, fontStyle: FontStyle.italic)),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -49,6 +52,25 @@ class BudgetCardWidget extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
+
+          // Income / Expense / Net row
+          if (totalIncome > 0) ...[
+            Row(
+              children: [
+                _StatPill(label: 'Income', value: '$currency${_fmt(totalIncome)}', color: kSage),
+                const SizedBox(width: 8),
+                _StatPill(label: 'Spent', value: '$currency${_fmt(totalSpent)}', color: kTerracotta),
+                const SizedBox(width: 8),
+                _StatPill(
+                  label: 'Net',
+                  value: '${netBalance >= 0 ? '+' : ''}$currency${_fmt(netBalance.abs())}',
+                  color: netBalance >= 0 ? kSage : kTerracotta,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -89,6 +111,38 @@ class BudgetCardWidget extends StatelessWidget {
     );
   }
 
-  String _fmt(double v) => v.toStringAsFixed(0).replaceAllMapped(
+  String _fmt(double v) => v.abs().toStringAsFixed(0).replaceAllMapped(
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
+}
+
+class _StatPill extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _StatPill({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 2),
+            Text(value,
+                style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w700),
+                overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
 }

@@ -51,9 +51,12 @@ class _CategoryBreakdownWidgetState extends State<CategoryBreakdownWidget> {
     final cats      = provider.categories;
     final expenses  = provider.expenses;
 
-    final catSpend = cats.map((c) {
+    const _incomeCategories = ['Salary', 'Freelance', 'Investment', 'Gift', 'Other Income'];
+    final expenseCats = cats.where((c) => !_incomeCategories.contains(c.name)).toList();
+
+    final catSpend = expenseCats.map((c) {
       final spent = expenses
-          .where((e) => e.category == c.name)
+          .where((e) => e.category == c.name && e.type == 'expense')
           .fold(0.0, (s, e) => s + e.amount);
       return _CatData(cat: c, spent: spent);
     }).toList();

@@ -4,6 +4,7 @@ import '../widgets/budget_card_widget.dart';
 import '../widgets/category_breakdown_widget.dart';
 import '../widgets/weekly_trend_widget.dart';
 import '../widgets/expense_list_widget.dart';
+import '../widgets/daily_note_widget.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -19,6 +20,7 @@ class HomeScreen extends StatelessWidget {
           CategoryBreakdownWidget(),
           WeeklyTrendWidget(),
           ExpenseListWidget(),
+          DailyNoteWidget(),
           SizedBox(height: 16),
         ],
       ),

@@ -4,7 +4,7 @@ import '../providers/app_provider.dart';
 import '../utils/constants.dart';
 import 'home_screen.dart';
 import 'stats_screen.dart';
-import 'categories_screen.dart';
+import 'recurring_screen.dart';
 import 'settings_screen.dart';
 
 class MainScreen extends StatelessWidget {
@@ -13,14 +13,14 @@ class MainScreen extends StatelessWidget {
   static const _screens = [
     HomeScreen(),
     StatsScreen(),
-    CategoriesScreen(),
+    RecurringScreen(),
     SettingsScreen(),
   ];
 
   static const _navItems = [
     BottomNavigationBarItem(icon: Text('🏠', style: TextStyle(fontSize: 20)), label: 'Home'),
     BottomNavigationBarItem(icon: Text('📊', style: TextStyle(fontSize: 20)), label: 'Stats'),
-    BottomNavigationBarItem(icon: Text('🏷️', style: TextStyle(fontSize: 20)), label: 'Categories'),
+    BottomNavigationBarItem(icon: Text('🔄', style: TextStyle(fontSize: 20)), label: 'Recurring'),
     BottomNavigationBarItem(icon: Text('⚙️', style: TextStyle(fontSize: 20)), label: 'Settings'),
   ];
 
@@ -57,6 +57,7 @@ class _AppHeader extends StatelessWidget implements PreferredSizeWidget {
     final provider = context.watch<AppProvider>();
     final now      = DateTime.now();
     final month    = _monthName(now.month);
+    final streak   = provider.streak;
 
     return Container(
       decoration: const BoxDecoration(
@@ -72,13 +73,32 @@ class _AppHeader extends StatelessWidget implements PreferredSizeWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
-                'My Expenses',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600, color: kText, fontStyle: FontStyle.italic),
+              Row(
+                children: [
+                  const Text(
+                    'Money Journal',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: kText, fontStyle: FontStyle.italic),
+                  ),
+                  if (streak.currentStreak > 0) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: kGold.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: kGold.withOpacity(0.4)),
+                      ),
+                      child: Text(
+                        '🔥 ${streak.currentStreak}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFB8860B)),
+                      ),
+                    ),
+                  ],
+                ],
               ),
               Text(
                 '$month ${now.year}',
-                style: const TextStyle(fontSize: 13, color: kSubtext),
+                style: const TextStyle(fontSize: 12, color: kSubtext),
               ),
             ],
           ),

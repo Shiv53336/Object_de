@@ -35,6 +35,16 @@ final List<ExpenseCategory> kDefaultCategories = [
   ExpenseCategory(name: 'Health',            emoji: '💊', color: '#E88D97', budget: 2000),
 ];
 
+// ─── Default Income Categories ─────────────────────────────────────────────
+
+final List<ExpenseCategory> kDefaultIncomeCategories = [
+  ExpenseCategory(name: 'Salary',      emoji: '💼', color: '#81B29A', budget: 0),
+  ExpenseCategory(name: 'Freelance',   emoji: '💻', color: '#3D405B', budget: 0),
+  ExpenseCategory(name: 'Investment',  emoji: '📈', color: '#F2CC8F', budget: 0),
+  ExpenseCategory(name: 'Gift',        emoji: '🎁', color: '#E07A5F', budget: 0),
+  ExpenseCategory(name: 'Other Income',emoji: '💰', color: '#7B68EE', budget: 0),
+];
+
 // ─── Random Colors ─────────────────────────────────────────────────────────
 
 const List<String> kRandColors = [

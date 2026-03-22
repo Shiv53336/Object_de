@@ -16,6 +16,9 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
   String _selectedPayment = 'UPI';
   String _customPay       = '';
   String? _selectedCat;
+  String _type            = 'expense'; // 'expense' | 'income'
+
+  static const _incomeCategories = ['Salary', 'Freelance', 'Investment', 'Gift', 'Other Income'];
 
   @override
   void dispose() {
@@ -27,7 +30,12 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
   void _handleAdd(AppProvider provider) {
     final amount = double.tryParse(_amountController.text);
     if (amount == null || amount <= 0) return;
-    final cat     = _selectedCat ?? provider.categories.first.name;
+
+    final cats = _type == 'income'
+        ? kDefaultIncomeCategories
+        : provider.categories.where((c) => !_incomeCategories.contains(c.name)).toList();
+
+    final cat = _selectedCat ?? (cats.isNotEmpty ? cats.first.name : 'Other');
     final payment = _selectedPayment == 'Other'
         ? (_customPay.isNotEmpty ? _customPay : 'Other')
         : _selectedPayment;
@@ -37,6 +45,7 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
       category: cat,
       note:     _noteController.text,
       payment:  payment,
+      type:     _type,
     ));
 
     _amountController.clear();
@@ -46,11 +55,18 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<AppProvider>();
-    final currency = provider.currency;
-    final cats     = provider.categories;
+    final provider  = context.watch<AppProvider>();
+    final currency  = provider.currency;
+    final isIncome  = _type == 'income';
+    final typeColor = isIncome ? kSage : kTerracotta;
 
-    _selectedCat ??= cats.isNotEmpty ? cats.first.name : null;
+    final cats = isIncome
+        ? kDefaultIncomeCategories
+        : provider.categories.where((c) => !_incomeCategories.contains(c.name)).toList();
+
+    // Reset selected category when type switches
+    final validCat = cats.any((c) => c.name == _selectedCat);
+    if (!validCat) _selectedCat = cats.isNotEmpty ? cats.first.name : null;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -64,7 +80,18 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('✏️ Quick Entry', style: TextStyle(fontSize: 18, color: kSubtext, fontStyle: FontStyle.italic)),
+          // Header with type toggle
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('✏️ Quick Entry',
+                  style: TextStyle(fontSize: 18, color: kSubtext, fontStyle: FontStyle.italic)),
+              _TypeToggle(
+                value: _type,
+                onChanged: (v) => setState(() { _type = v; _selectedCat = null; }),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
 
           // Amount + Category + Add
@@ -76,7 +103,7 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
                   decoration: BoxDecoration(
                     color: kBackground,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: kBorder),
+                    border: Border.all(color: isIncome ? kSage : kBorder),
                   ),
                   child: Row(
                     children: [
@@ -86,10 +113,10 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
                         child: TextField(
                           controller: _amountController,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: kText),
-                          decoration: const InputDecoration(
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: typeColor),
+                          decoration: InputDecoration(
                             hintText: '0',
-                            hintStyle: TextStyle(color: kSubtext),
+                            hintStyle: const TextStyle(color: kSubtext),
                             isDense: true,
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.zero,
@@ -128,7 +155,7 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
               ElevatedButton(
                 onPressed: () => _handleAdd(provider),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: kNavy,
+                  backgroundColor: typeColor,
                   foregroundColor: kBackground,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -160,7 +187,7 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: kNavy),
+                borderSide: BorderSide(color: typeColor),
               ),
             ),
             onSubmitted: (_) => _handleAdd(provider),
@@ -213,6 +240,65 @@ class _QuickAddWidgetState extends State<QuickAddWidget> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TypeToggle extends StatelessWidget {
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  const _TypeToggle({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: kBackground,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: kBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ToggleBtn(label: '− Expense', active: value == 'expense', color: kTerracotta,
+              onTap: () => onChanged('expense')),
+          _ToggleBtn(label: '+ Income', active: value == 'income', color: kSage,
+              onTap: () => onChanged('income')),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToggleBtn extends StatelessWidget {
+  final String label;
+  final bool active;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ToggleBtn({required this.label, required this.active, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? color : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: active ? Colors.white : kSubtext,
+          ),
+        ),
       ),
     );
   }

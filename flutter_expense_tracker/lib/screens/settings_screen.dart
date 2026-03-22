@@ -127,6 +127,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 12),
 
+            // Sound & Haptic
+            _Card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Preferences', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: kMuted)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Text('🔊', style: TextStyle(fontSize: 16)),
+                          SizedBox(width: 8),
+                          Text('Sound effects', style: TextStyle(fontSize: 13, color: kText)),
+                        ],
+                      ),
+                      Switch(
+                        value: provider.soundEnabled,
+                        onChanged: provider.setSoundEnabled,
+                        activeColor: kNavy,
+                      ),
+                    ],
+                  ),
+                  const Divider(color: kBorder, height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Text('📳', style: TextStyle(fontSize: 16)),
+                          SizedBox(width: 8),
+                          Text('Haptic feedback', style: TextStyle(fontSize: 13, color: kText)),
+                        ],
+                      ),
+                      Switch(
+                        value: provider.hapticEnabled,
+                        onChanged: provider.setHapticEnabled,
+                        activeColor: kNavy,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
             // Offline status
             _Card(
               child: Column(
