@@ -30,6 +30,8 @@ const RAND_COLORS = [
 
 const DEFAULT_BUDGET = 26000;
 
+const DEFAULT_MEMBERS = ["Dad", "Mom", "Kid"];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function useLocalStorage(key, initial) {
@@ -112,13 +114,14 @@ function Header({ currency, setCurrency }) {
 
 // ─── Quick Add ────────────────────────────────────────────────────────────────
 
-function QuickAdd({ currency, categories, onAdd, onAddRecurring }) {
+function QuickAdd({ currency, categories, members, onAdd, onAddRecurring }) {
   const [amount,      setAmount]      = useState("");
   const [cat,         setCat]         = useState(categories[0]?.name || "");
   const [note,        setNote]        = useState("");
   const [payment,     setPayment]     = useState("UPI");
   const [customPay,   setCustomPay]   = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
+  const [member,      setMember]      = useState("");
 
   useEffect(() => {
     if (categories.length && !categories.find(c => c.name === cat)) {
@@ -140,6 +143,7 @@ function QuickAdd({ currency, categories, onAdd, onAddRecurring }) {
       emoji:     catObj?.emoji || "💸",
       payment:   payFinal,
       recurring: isRecurring,
+      member:    member,
     });
     if (isRecurring) {
       onAddRecurring({
@@ -224,6 +228,27 @@ function QuickAdd({ currency, categories, onAdd, onAddRecurring }) {
           />
         )}
       </div>
+
+      {members.length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#8B8580", marginRight: 2 }}>For:</span>
+          <button
+            onClick={() => setMember("")}
+            style={{ padding: "5px 12px", borderRadius: 20, border: member === "" ? "2px solid #3D405B" : "1px solid #EDE8E1", background: member === "" ? "#3D405B14" : "#FAF6F1", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: member === "" ? 600 : 400, color: member === "" ? "#3D405B" : "#8B8580", cursor: "pointer" }}
+          >
+            👨‍👩‍👧 All
+          </button>
+          {members.map(m => (
+            <button
+              key={m}
+              onClick={() => setMember(m)}
+              style={{ padding: "5px 12px", borderRadius: 20, border: member === m ? "2px solid #6C63FF" : "1px solid #EDE8E1", background: member === m ? "#6C63FF14" : "#FAF6F1", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: member === m ? 600 : 400, color: member === m ? "#6C63FF" : "#8B8580", cursor: "pointer" }}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
 
       <button
         onClick={() => setIsRecurring(r => !r)}
@@ -527,6 +552,11 @@ function ExpenseList({ currency, expenses, onDelete }) {
                         🔄 Recurring
                       </span>
                     )}
+                    {exp.member && (
+                      <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: "#6C63FF14", color: "#6C63FF", letterSpacing: 0.3 }}>
+                        👤 {exp.member}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <span style={{ fontFamily: "'Crimson Pro', serif", fontSize: 16, fontWeight: 700, color: "#E07A5F", flexShrink: 0 }}>
@@ -546,8 +576,9 @@ function ExpenseList({ currency, expenses, onDelete }) {
 
 // ─── Settings View ────────────────────────────────────────────────────────────
 
-function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onClearAll, recurring, onDeleteRecurring }) {
+function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onClearAll, recurring, onDeleteRecurring, members, onAddMember, onDeleteMember }) {
   const [budgetInput, setBudgetInput] = useState(totalBudget);
+  const [newMember,   setNewMember]   = useState("");
 
   return (
     <div style={{ margin: "0 16px 16px" }}>
@@ -597,6 +628,35 @@ function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onCl
         )}
       </div>
 
+      {/* Family Members */}
+      <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1", marginBottom: 12 }}>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#5A5550", margin: "0 0 4px" }}>👨‍👩‍👧 Family Members</p>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580", margin: "0 0 10px" }}>Tag expenses per person in Quick Entry.</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {members.map(m => (
+            <div key={m} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "#6C63FF14", borderRadius: 20, border: "1px solid #6C63FF44" }}>
+              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#6C63FF", fontWeight: 600 }}>{m}</span>
+              <button onClick={() => onDeleteMember(m)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#6C63FF99", padding: 0, lineHeight: 1 }}>✕</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={newMember}
+            onChange={e => setNewMember(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && newMember.trim()) { onAddMember(newMember.trim()); setNewMember(""); } }}
+            placeholder="Add member name..."
+            style={{ flex: 1, padding: "7px 12px", borderRadius: 10, border: "1px solid #EDE8E1", fontFamily: "'DM Sans', sans-serif", fontSize: 13, outline: "none", background: "#FAF6F1" }}
+          />
+          <button
+            onClick={() => { if (newMember.trim()) { onAddMember(newMember.trim()); setNewMember(""); } }}
+            style={{ background: "#6C63FF", color: "#fff", border: "none", borderRadius: 10, padding: "7px 14px", fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+
       <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1", marginBottom: 12 }}>
         <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#5A5550", margin: "0 0 4px" }}>Offline Ready</p>
         <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#81B29A", margin: "0 0 0" }}>✅ All data saved locally on your device. No internet needed.</p>
@@ -643,6 +703,7 @@ export default function App() {
   const [expenses,     setExpenses]     = useLocalStorage("et_expenses",   []);
   const [categories,   setCategories]   = useLocalStorage("et_categories", DEFAULT_CATEGORIES);
   const [recurring,    setRecurring]    = useLocalStorage("et_recurring",  []);
+  const [members,      setMembers]      = useLocalStorage("et_members",    DEFAULT_MEMBERS);
   const [selectedView, setSelectedView] = useState("home");
 
   // Auto-log recurring expenses once per month on app load
@@ -676,6 +737,8 @@ export default function App() {
     setCategories(prev => prev.map(c => c.name === name ? { ...c, ...patch } : c));
   const addRecurring    = (r)   => setRecurring(prev => [...prev, r]);
   const deleteRecurring = (id)  => setRecurring(prev => prev.filter(r => r.id !== id));
+  const addMember       = (m)   => setMembers(prev => prev.includes(m) ? prev : [...prev, m]);
+  const deleteMember    = (m)   => setMembers(prev => prev.filter(x => x !== m));
   const clearAll    = () => {
     if (window.confirm("Clear all expenses? This cannot be undone.")) setExpenses([]);
   };
@@ -688,7 +751,7 @@ export default function App() {
 
       {selectedView === "home" && (
         <>
-          <QuickAdd      currency={currency} categories={categories} onAdd={addExpense} onAddRecurring={addRecurring} />
+          <QuickAdd      currency={currency} categories={categories} members={members} onAdd={addExpense} onAddRecurring={addRecurring} />
           <BudgetCard    currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
           <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} onUpdateCategory={updateCategory} />
           <WeeklyTrend   currency={currency} expenses={expenses} />
@@ -714,6 +777,7 @@ export default function App() {
           totalBudget={totalBudget} setTotalBudget={setTotalBudget}
           onClearAll={clearAll}
           recurring={recurring}     onDeleteRecurring={deleteRecurring}
+          members={members}         onAddMember={addMember}  onDeleteMember={deleteMember}
         />
       )}
 
