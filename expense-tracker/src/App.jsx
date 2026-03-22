@@ -112,12 +112,13 @@ function Header({ currency, setCurrency }) {
 
 // ─── Quick Add ────────────────────────────────────────────────────────────────
 
-function QuickAdd({ currency, categories, onAdd }) {
-  const [amount,    setAmount]    = useState("");
-  const [cat,       setCat]       = useState(categories[0]?.name || "");
-  const [note,      setNote]      = useState("");
-  const [payment,   setPayment]   = useState("UPI");
-  const [customPay, setCustomPay] = useState("");
+function QuickAdd({ currency, categories, onAdd, onAddRecurring }) {
+  const [amount,      setAmount]      = useState("");
+  const [cat,         setCat]         = useState(categories[0]?.name || "");
+  const [note,        setNote]        = useState("");
+  const [payment,     setPayment]     = useState("UPI");
+  const [customPay,   setCustomPay]   = useState("");
+  const [isRecurring, setIsRecurring] = useState(false);
 
   useEffect(() => {
     if (categories.length && !categories.find(c => c.name === cat)) {
@@ -129,15 +130,29 @@ function QuickAdd({ currency, categories, onAdd }) {
     const num = parseFloat(amount);
     if (!num || num <= 0) return;
     const catObj = categories.find(c => c.name === cat) || categories[0];
+    const payFinal = payment === "Other" ? (customPay || "Other") : payment;
     onAdd({
-      id:       Date.now(),
-      amount:   num,
-      category: cat,
-      note:     note || cat,
-      date:     todayStr(),
-      emoji:    catObj?.emoji || "💸",
-      payment:  payment === "Other" ? (customPay || "Other") : payment,
+      id:        Date.now(),
+      amount:    num,
+      category:  cat,
+      note:      note || cat,
+      date:      todayStr(),
+      emoji:     catObj?.emoji || "💸",
+      payment:   payFinal,
+      recurring: isRecurring,
     });
+    if (isRecurring) {
+      onAddRecurring({
+        id:        Date.now() + 1,
+        amount:    num,
+        category:  cat,
+        note:      note || cat,
+        emoji:     catObj?.emoji || "💸",
+        payment:   payFinal,
+        lastLogged: new Date().toISOString().slice(0, 7),
+      });
+      setIsRecurring(false);
+    }
     setAmount("");
     setNote("");
   };
@@ -209,6 +224,13 @@ function QuickAdd({ currency, categories, onAdd }) {
           />
         )}
       </div>
+
+      <button
+        onClick={() => setIsRecurring(r => !r)}
+        style={{ marginTop: 8, padding: "6px 14px", borderRadius: 20, border: isRecurring ? "2px solid #2A9D8F" : "1px solid #EDE8E1", background: isRecurring ? "#2A9D8F14" : "#FAF6F1", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: isRecurring ? 600 : 400, color: isRecurring ? "#2A9D8F" : "#8B8580", cursor: "pointer" }}
+      >
+        🔄 {isRecurring ? "Will auto-repeat monthly" : "Set as recurring"}
+      </button>
     </div>
   );
 }
@@ -500,6 +522,11 @@ function ExpenseList({ currency, expenses, onDelete }) {
                     <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: pc.bg, color: pc.fg, letterSpacing: 0.3 }}>
                       {paymentIcon(exp.payment)} {exp.payment}
                     </span>
+                    {exp.recurring && (
+                      <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: 10, background: "#2A9D8F14", color: "#2A9D8F", letterSpacing: 0.3 }}>
+                        🔄 Recurring
+                      </span>
+                    )}
                   </div>
                 </div>
                 <span style={{ fontFamily: "'Crimson Pro', serif", fontSize: 16, fontWeight: 700, color: "#E07A5F", flexShrink: 0 }}>
@@ -519,7 +546,7 @@ function ExpenseList({ currency, expenses, onDelete }) {
 
 // ─── Settings View ────────────────────────────────────────────────────────────
 
-function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onClearAll }) {
+function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onClearAll, recurring, onDeleteRecurring }) {
   const [budgetInput, setBudgetInput] = useState(totalBudget);
 
   return (
@@ -541,6 +568,33 @@ function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onCl
           <input type="number" value={budgetInput} onChange={e => setBudgetInput(e.target.value)} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "1px solid #EDE8E1", fontFamily: "'DM Sans', sans-serif", fontSize: 14, outline: "none", background: "#FAF6F1" }} />
           <button onClick={() => setTotalBudget(parseFloat(budgetInput) || DEFAULT_BUDGET)} style={{ background: "#3D405B", color: "#FAF6F1", border: "none", borderRadius: 10, padding: "8px 16px", fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Save</button>
         </div>
+      </div>
+
+      {/* Recurring Expenses */}
+      <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1", marginBottom: 12 }}>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#5A5550", margin: "0 0 4px" }}>🔄 Recurring Expenses</p>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580", margin: "0 0 10px" }}>
+          Auto-logged every month. Add via the 🔄 toggle in Quick Entry.
+        </p>
+        {recurring.length === 0 ? (
+          <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#CCC5BB", textAlign: "center", padding: "8px 0" }}>
+            No recurring expenses yet.
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {recurring.map(r => (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "#FAF6F1", borderRadius: 10, border: "1px solid #EDE8E1" }}>
+                <span style={{ fontSize: 18 }}>{r.emoji}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 500, color: "#2D2A26", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note}</p>
+                  <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580", margin: "2px 0 0" }}>{r.category} • monthly</p>
+                </div>
+                <span style={{ fontFamily: "'Crimson Pro', serif", fontSize: 14, fontWeight: 700, color: "#E07A5F", flexShrink: 0 }}>{currency}{r.amount.toLocaleString()}</span>
+                <button onClick={() => onDeleteRecurring(r.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#CCC5BB", padding: 0, flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1", marginBottom: 12 }}>
@@ -588,7 +642,31 @@ export default function App() {
   const [totalBudget,  setTotalBudget]  = useLocalStorage("et_budget",     DEFAULT_BUDGET);
   const [expenses,     setExpenses]     = useLocalStorage("et_expenses",   []);
   const [categories,   setCategories]   = useLocalStorage("et_categories", DEFAULT_CATEGORIES);
+  const [recurring,    setRecurring]    = useLocalStorage("et_recurring",  []);
   const [selectedView, setSelectedView] = useState("home");
+
+  // Auto-log recurring expenses once per month on app load
+  useEffect(() => {
+    if (!recurring.length) return;
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const today = todayStr();
+    const toLog = recurring.filter(r => r.lastLogged !== currentMonth);
+    if (!toLog.length) return;
+    setExpenses(prev => [
+      ...toLog.map(r => ({
+        id:        Date.now() + Math.random(),
+        amount:    r.amount,
+        category:  r.category,
+        note:      r.note,
+        date:      today,
+        emoji:     r.emoji,
+        payment:   r.payment,
+        recurring: true,
+      })),
+      ...prev,
+    ]);
+    setRecurring(prev => prev.map(r => ({ ...r, lastLogged: currentMonth })));
+  }, []);
 
   const totalSpent  = expenses.reduce((s, e) => s + e.amount, 0);
   const addExpense  = (exp) => setExpenses(prev => [exp, ...prev]);
@@ -596,6 +674,8 @@ export default function App() {
   const addCategory    = (cat) => setCategories(prev => [...prev, cat]);
   const updateCategory = (name, patch) =>
     setCategories(prev => prev.map(c => c.name === name ? { ...c, ...patch } : c));
+  const addRecurring    = (r)   => setRecurring(prev => [...prev, r]);
+  const deleteRecurring = (id)  => setRecurring(prev => prev.filter(r => r.id !== id));
   const clearAll    = () => {
     if (window.confirm("Clear all expenses? This cannot be undone.")) setExpenses([]);
   };
@@ -608,7 +688,7 @@ export default function App() {
 
       {selectedView === "home" && (
         <>
-          <QuickAdd      currency={currency} categories={categories} onAdd={addExpense} />
+          <QuickAdd      currency={currency} categories={categories} onAdd={addExpense} onAddRecurring={addRecurring} />
           <BudgetCard    currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
           <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} onUpdateCategory={updateCategory} />
           <WeeklyTrend   currency={currency} expenses={expenses} />
@@ -630,9 +710,10 @@ export default function App() {
 
       {selectedView === "settings" && (
         <SettingsView
-          currency={currency}     setCurrency={setCurrency}
+          currency={currency}       setCurrency={setCurrency}
           totalBudget={totalBudget} setTotalBudget={setTotalBudget}
           onClearAll={clearAll}
+          recurring={recurring}     onDeleteRecurring={deleteRecurring}
         />
       )}
 
