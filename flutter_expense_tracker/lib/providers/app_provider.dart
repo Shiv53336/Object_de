@@ -8,6 +8,7 @@ import '../models/expense_category.dart';
 import '../models/streak_model.dart';
 import '../models/recurring_expense.dart';
 import '../utils/constants.dart';
+import '../services/sound_service.dart';
 
 class AppProvider extends ChangeNotifier {
   String _currency = '₹';
@@ -229,6 +230,7 @@ class AppProvider extends ChangeNotifier {
     _expenses.insert(0, expense);
     _updateStreak(expense.date);
     if (_hapticEnabled) HapticFeedback.lightImpact();
+    if (_soundEnabled) SoundService.instance.playAdd();
     notifyListeners();
     _saveExpenses();
     _saveStreak();
@@ -245,6 +247,7 @@ class AppProvider extends ChangeNotifier {
   void deleteExpense(int id) {
     _expenses.removeWhere((e) => e.id == id);
     if (_hapticEnabled) HapticFeedback.mediumImpact();
+    if (_soundEnabled) SoundService.instance.playDelete();
     notifyListeners();
     _saveExpenses();
   }
