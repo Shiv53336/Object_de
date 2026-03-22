@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Money Journal",
+    "slug": "money-journal",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAF6F1"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.moneyjournal.app"
+    },
+    "android": {
+      "package": "com.moneyjournal.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#FAF6F1",
+        "foregroundImage": "./assets/icon.png"
+      }
+    },
+    "plugins": []
+  }
+}
