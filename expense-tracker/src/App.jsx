@@ -447,6 +447,59 @@ function CategoryBreakdown({ currency, categories, expenses, onAddCategory, onUp
   );
 }
 
+// ─── Spending Alerts ──────────────────────────────────────────────────────────
+
+function SpendingAlerts({ currency, categories, expenses }) {
+  const [dismissed, setDismissed] = useState(new Set());
+
+  const alerts = categories
+    .map(c => {
+      const budget = c.budget || 0;
+      if (budget <= 0) return null;
+      const spent = expenses.filter(e => e.category === c.name).reduce((s, e) => s + e.amount, 0);
+      const pct   = Math.round((spent / budget) * 100);
+      if (pct < 80) return null;
+      return { name: c.name, emoji: c.emoji, pct, spent, budget, over: spent > budget };
+    })
+    .filter(Boolean)
+    .filter(a => !dismissed.has(a.name));
+
+  if (!alerts.length) return null;
+
+  return (
+    <div style={{ margin: "0 16px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+      {alerts.map(a => (
+        <div
+          key={a.name}
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "10px 14px", borderRadius: 12,
+            background: a.over ? "#E07A5F12" : "#F2CC8F14",
+            border:     `1px solid ${a.over ? "#E07A5F55" : "#F2CC8F88"}`,
+          }}
+        >
+          <span style={{ fontSize: 20 }}>{a.emoji}</span>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, color: a.over ? "#E07A5F" : "#B8860B", margin: 0 }}>
+              {a.over ? "🚨 Over budget!" : `⚠️ ${a.pct}% used`} — {a.name}
+            </p>
+            <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580", margin: "2px 0 0" }}>
+              {currency}{a.spent.toLocaleString()} of {currency}{a.budget.toLocaleString()}
+              {a.over && ` · over by ${currency}${(a.spent - a.budget).toLocaleString()}`}
+            </p>
+          </div>
+          <button
+            onClick={() => setDismissed(d => new Set([...d, a.name]))}
+            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#CCC5BB", padding: 0, flexShrink: 0 }}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Weekly Trend ─────────────────────────────────────────────────────────────
 
 function WeeklyTrend({ currency, expenses }) {
@@ -751,8 +804,9 @@ export default function App() {
 
       {selectedView === "home" && (
         <>
-          <QuickAdd      currency={currency} categories={categories} members={members} onAdd={addExpense} onAddRecurring={addRecurring} />
-          <BudgetCard    currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
+          <QuickAdd        currency={currency} categories={categories} members={members} onAdd={addExpense} onAddRecurring={addRecurring} />
+          <BudgetCard      currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
+          <SpendingAlerts  currency={currency} categories={categories} expenses={expenses} />
           <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} onUpdateCategory={updateCategory} />
           <WeeklyTrend   currency={currency} expenses={expenses} />
           <ExpenseList   currency={currency} expenses={expenses} onDelete={delExpense} />
