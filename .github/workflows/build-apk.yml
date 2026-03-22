@@ -52,23 +52,41 @@ jobs:
             2>/dev/null || true
           echo "✅ Flutter scaffold created"
 
-      # ── 6. Fix Kotlin version for shared_preferences compatibility ──────────
-      - name: Patch Kotlin version to 1.9.0
+      # ── 6. Fix Kotlin version for audioplayers compatibility ────────────────
+      - name: Patch Kotlin version to 1.9.22
         working-directory: flutter_expense_tracker/android
         run: |
-          # Flutter 3.19+ puts kotlin version in settings.gradle
-          if grep -q "org.jetbrains.kotlin.android" settings.gradle 2>/dev/null; then
-            sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.0"/' settings.gradle
-            echo "✅ Kotlin version patched in settings.gradle"
-            grep "kotlin" settings.gradle
-          elif grep -q "kotlin_version" build.gradle 2>/dev/null; then
-            sed -i "s/ext.kotlin_version = '[^']*'/ext.kotlin_version = '1.9.0'/" build.gradle
-            echo "✅ Kotlin version patched in build.gradle"
-            grep "kotlin_version" build.gradle
-          else
-            echo "⚠️ kotlin version line not found, listing gradle files for debug:"
-            cat build.gradle
-            cat settings.gradle || true
+          TARGET="1.9.22"
+          PATCHED=false
+
+          # Flutter 3.19+ puts kotlin version in settings.gradle (handle both quote styles)
+          if [ -f settings.gradle ]; then
+            if grep -q "org.jetbrains.kotlin.android" settings.gradle; then
+              # double-quoted style
+              sed -i "s/id \"org.jetbrains.kotlin.android\" version \"[^\"]*\"/id \"org.jetbrains.kotlin.android\" version \"$TARGET\"/" settings.gradle
+              # single-quoted style
+              sed -i "s/id 'org.jetbrains.kotlin.android' version '[^']*'/id 'org.jetbrains.kotlin.android' version '$TARGET'/" settings.gradle
+              echo "✅ Kotlin patched in settings.gradle to $TARGET"
+              grep -i "kotlin" settings.gradle || true
+              PATCHED=true
+            fi
+          fi
+
+          # Older-style build.gradle fallback
+          if [ "$PATCHED" = false ] && [ -f build.gradle ]; then
+            if grep -q "kotlin_version" build.gradle; then
+              sed -i "s/ext.kotlin_version = '[^']*'/ext.kotlin_version = '$TARGET'/" build.gradle
+              sed -i "s/ext.kotlin_version = \"[^\"]*\"/ext.kotlin_version = \"$TARGET\"/" build.gradle
+              echo "✅ Kotlin patched in build.gradle to $TARGET"
+              grep "kotlin_version" build.gradle
+              PATCHED=true
+            fi
+          fi
+
+          if [ "$PATCHED" = false ]; then
+            echo "⚠️ Could not find kotlin version declaration. Dumping gradle files:"
+            cat build.gradle 2>/dev/null || true
+            cat settings.gradle 2>/dev/null || true
           fi
 
       # ── 7. Install dependencies ─────────────────────────────────────────────
