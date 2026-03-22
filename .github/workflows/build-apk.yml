@@ -41,7 +41,7 @@ jobs:
       - name: Flutter version info
         run: flutter --version
 
-      # ── 5. Generate Flutter project boilerplate (android/ ios/ folders) ────
+      # ── 5. Generate Flutter project boilerplate (android/ folders only) ────
       - name: Create Flutter project scaffold
         working-directory: flutter_expense_tracker
         run: |
@@ -49,7 +49,6 @@ jobs:
             --project-name=expense_tracker \
             --org=com.expensetracker \
             --platforms=android \
-            --overwrite \
             2>/dev/null || true
           echo "✅ Flutter scaffold created"
 
