@@ -253,12 +253,14 @@ function BudgetCard({ currency, totalSpent, totalBudget }) {
 
 // ─── Category Breakdown ───────────────────────────────────────────────────────
 
-function CategoryBreakdown({ currency, categories, expenses, onAddCategory }) {
+function CategoryBreakdown({ currency, categories, expenses, onAddCategory, onUpdateCategory }) {
   const [chartType,   setChartType]   = useState("donut");
   const [showAddCat,  setShowAddCat]  = useState(false);
   const [newEmoji,    setNewEmoji]    = useState("");
   const [newName,     setNewName]     = useState("");
   const [newBudget,   setNewBudget]   = useState("");
+  const [editingBudget, setEditingBudget] = useState(null); // category name being edited
+  const [editBudgetVal, setEditBudgetVal] = useState("");
 
   const catSpend = categories.map(c => ({
     ...c,
@@ -292,26 +294,16 @@ function CategoryBreakdown({ currency, categories, expenses, onAddCategory }) {
       </div>
 
       {chartType === "donut" ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <ResponsiveContainer width="50%" height={160}>
-            <PieChart>
-              <Pie data={pieData.length ? pieData : [{ name: "empty", value: 1, color: "#EDE8E1" }]} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" stroke="none">
-                {(pieData.length ? pieData : [{ color: "#EDE8E1" }]).map((entry, i) => <Cell key={i} fill={entry.color} />)}
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
-          <div style={{ flex: 1 }}>
-            {catSpend.map(c => (
-              <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
-                <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#5A5550", flex: 1 }}>{c.emoji} {c.name.split(" ")[0]}</span>
-                <span style={{ fontFamily: "'Crimson Pro', serif", fontSize: 12, fontWeight: 600, color: "#2D2A26" }}>{currency}{c.spent.toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <ResponsiveContainer width="100%" height={140}>
+          <PieChart>
+            <Pie data={pieData.length ? pieData : [{ name: "empty", value: 1, color: "#EDE8E1" }]} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" stroke="none">
+              {(pieData.length ? pieData : [{ color: "#EDE8E1" }]).map((entry, i) => <Cell key={i} fill={entry.color} />)}
+            </Pie>
+            <Tooltip formatter={v => [`${currency}${v.toLocaleString()}`, "Spent"]} contentStyle={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, borderRadius: 8, border: "1px solid #EDE8E1" }} />
+          </PieChart>
+        </ResponsiveContainer>
       ) : (
-        <ResponsiveContainer width="100%" height={160}>
+        <ResponsiveContainer width="100%" height={140}>
           <BarChart data={catSpend.map(c => ({ name: c.emoji, spent: c.spent, color: c.color }))}>
             <XAxis dataKey="name" tick={{ fontSize: 14 }} axisLine={false} tickLine={false} />
             <YAxis hide />
@@ -323,7 +315,76 @@ function CategoryBreakdown({ currency, categories, expenses, onAddCategory }) {
         </ResponsiveContainer>
       )}
 
-      <button onClick={() => setShowAddCat(!showAddCat)} style={{ marginTop: 10, width: "100%", padding: "8px", background: "transparent", border: "1px dashed #CCC5BB", borderRadius: 8, fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#8B8580", cursor: "pointer" }}>
+      {/* Per-category budget rows */}
+      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        {catSpend.map(c => {
+          const budget = c.budget || 0;
+          const pct    = budget > 0 ? Math.min(100, Math.round((c.spent / budget) * 100)) : 0;
+          const color  = getBudgetColor(pct);
+          const over   = c.spent > budget && budget > 0;
+          const isEditing = editingBudget === c.name;
+          return (
+            <div key={c.name}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#2D2A26", fontWeight: 500 }}>
+                  {c.emoji} {c.name}
+                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontFamily: "'Crimson Pro', serif", fontSize: 13, color: "#5A5550" }}>
+                    {currency}{c.spent.toLocaleString()}
+                  </span>
+                  <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580" }}>/</span>
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      autoFocus
+                      value={editBudgetVal}
+                      onChange={e => setEditBudgetVal(e.target.value)}
+                      onBlur={() => {
+                        const val = parseFloat(editBudgetVal);
+                        if (val > 0) onUpdateCategory(c.name, { budget: val });
+                        setEditingBudget(null);
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          const val = parseFloat(editBudgetVal);
+                          if (val > 0) onUpdateCategory(c.name, { budget: val });
+                          setEditingBudget(null);
+                        }
+                        if (e.key === "Escape") setEditingBudget(null);
+                      }}
+                      style={{ width: 64, padding: "2px 6px", borderRadius: 6, border: `1px solid ${color}`, fontFamily: "'DM Sans', sans-serif", fontSize: 12, outline: "none", background: "#fff", color: "#2D2A26" }}
+                    />
+                  ) : (
+                    <button
+                      title="Click to edit budget"
+                      onClick={() => { setEditingBudget(c.name); setEditBudgetVal(String(budget)); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Crimson Pro', serif", fontSize: 13, color: "#8B8580", padding: 0, textDecoration: "underline dotted", textUnderlineOffset: 2 }}
+                    >
+                      {currency}{(budget || 0).toLocaleString()}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div style={{ height: 7, background: "#EDE8E1", borderRadius: 6, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${color}, ${color}cc)`, borderRadius: 6, transition: "width 0.5s ease" }} />
+              </div>
+              {over && (
+                <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#E07A5F", margin: "3px 0 0", fontWeight: 500 }}>
+                  ⚠️ Over by {currency}{(c.spent - budget).toLocaleString()}
+                </p>
+              )}
+              {!over && pct >= 85 && (
+                <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#F2CC8F", margin: "3px 0 0", fontWeight: 500 }}>
+                  Almost at limit ({pct}%)
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <button onClick={() => setShowAddCat(!showAddCat)} style={{ marginTop: 12, width: "100%", padding: "8px", background: "transparent", border: "1px dashed #CCC5BB", borderRadius: 8, fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#8B8580", cursor: "pointer" }}>
         + Add Custom Category
       </button>
 
@@ -532,7 +593,9 @@ export default function App() {
   const totalSpent  = expenses.reduce((s, e) => s + e.amount, 0);
   const addExpense  = (exp) => setExpenses(prev => [exp, ...prev]);
   const delExpense  = (id)  => setExpenses(prev => prev.filter(e => e.id !== id));
-  const addCategory = (cat) => setCategories(prev => [...prev, cat]);
+  const addCategory    = (cat) => setCategories(prev => [...prev, cat]);
+  const updateCategory = (name, patch) =>
+    setCategories(prev => prev.map(c => c.name === name ? { ...c, ...patch } : c));
   const clearAll    = () => {
     if (window.confirm("Clear all expenses? This cannot be undone.")) setExpenses([]);
   };
@@ -547,7 +610,7 @@ export default function App() {
         <>
           <QuickAdd      currency={currency} categories={categories} onAdd={addExpense} />
           <BudgetCard    currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
-          <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} />
+          <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} onUpdateCategory={updateCategory} />
           <WeeklyTrend   currency={currency} expenses={expenses} />
           <ExpenseList   currency={currency} expenses={expenses} onDelete={delExpense} />
         </>
@@ -557,12 +620,12 @@ export default function App() {
         <>
           <BudgetCard        currency={currency} totalSpent={totalSpent} totalBudget={totalBudget} />
           <WeeklyTrend       currency={currency} expenses={expenses} />
-          <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} />
+          <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} onUpdateCategory={updateCategory} />
         </>
       )}
 
       {selectedView === "cats" && (
-        <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} />
+        <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} onUpdateCategory={updateCategory} />
       )}
 
       {selectedView === "settings" && (
