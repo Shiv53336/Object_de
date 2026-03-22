@@ -212,7 +212,7 @@ class _EditExpenseModalState extends State<_EditExpenseModal> {
                 if (_selectedPayment == 'Other')
                   SizedBox(
                     width: 140,
-                    child: TextField(
+                    child: TextFormField(
                       initialValue: _customPay,
                       style: const TextStyle(fontSize: 12),
                       decoration: const InputDecoration(
