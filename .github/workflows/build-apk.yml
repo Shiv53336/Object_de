@@ -52,7 +52,15 @@ jobs:
             2>/dev/null || true
           echo "✅ Flutter scaffold created"
 
-      # ── 6. Install dependencies ─────────────────────────────────────────────
+      # ── 6. Fix Kotlin version for shared_preferences compatibility ──────────
+      - name: Patch Kotlin version to 1.9.0
+        working-directory: flutter_expense_tracker/android
+        run: |
+          sed -i "s/ext.kotlin_version = '[^']*'/ext.kotlin_version = '1.9.0'/" build.gradle
+          echo "✅ Kotlin version patched to 1.9.0"
+          grep kotlin_version build.gradle
+
+      # ── 7. Install dependencies ─────────────────────────────────────────────
       - name: Flutter pub get
         working-directory: flutter_expense_tracker
         run: flutter pub get
