@@ -557,16 +557,30 @@ function WeeklyTrend({ currency, expenses }) {
 
 // ─── Expense List ─────────────────────────────────────────────────────────────
 
-function ExpenseList({ currency, expenses, onDelete }) {
-  const grouped = expenses
+function ExpenseList({ currency, expenses, categories, members, onDelete }) {
+  const [search,     setSearch]     = useState("");
+  const [filterCat,  setFilterCat]  = useState("");
+  const [filterMember, setFilterMember] = useState("");
+
+  const filtered = expenses
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
-    .reduce((acc, exp) => {
-      const label = dateLabel(exp.date);
-      if (!acc[label]) acc[label] = [];
-      acc[label].push(exp);
-      return acc;
-    }, {});
+    .filter(e => {
+      const q = search.toLowerCase();
+      if (q && !e.note.toLowerCase().includes(q) && !e.category.toLowerCase().includes(q)) return false;
+      if (filterCat && e.category !== filterCat) return false;
+      if (filterMember && e.member !== filterMember) return false;
+      return true;
+    });
+
+  const grouped = filtered.reduce((acc, exp) => {
+    const label = dateLabel(exp.date);
+    if (!acc[label]) acc[label] = [];
+    acc[label].push(exp);
+    return acc;
+  }, {});
+
+  const hasFilters = search || filterCat || filterMember;
 
   if (expenses.length === 0) {
     return (
@@ -579,6 +593,56 @@ function ExpenseList({ currency, expenses, onDelete }) {
   return (
     <div style={{ margin: "0 16px 16px" }}>
       <p style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: "#8B8580", margin: "0 0 10px" }}>📝 Recent Entries</p>
+
+      {/* Search bar */}
+      <div style={{ position: "relative", marginBottom: 8 }}>
+        <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#8B8580" }}>🔍</span>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search notes or category..."
+          style={{ width: "100%", padding: "8px 12px 8px 32px", borderRadius: 10, border: "1px solid #EDE8E1", fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: "#2D2A26", outline: "none", background: "#FAF6F1", boxSizing: "border-box" }}
+        />
+      </div>
+
+      {/* Filter pills row */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+        <select
+          value={filterCat}
+          onChange={e => setFilterCat(e.target.value)}
+          style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, background: filterCat ? "#3D405B" : "#FAF6F1", color: filterCat ? "#FAF6F1" : "#8B8580", border: "1px solid #EDE8E1", borderRadius: 20, padding: "4px 10px", outline: "none", cursor: "pointer" }}
+        >
+          <option value="">All categories</option>
+          {categories.map(c => <option key={c.name} value={c.name}>{c.emoji} {c.name}</option>)}
+        </select>
+
+        {members.length > 0 && (
+          <select
+            value={filterMember}
+            onChange={e => setFilterMember(e.target.value)}
+            style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, background: filterMember ? "#6C63FF" : "#FAF6F1", color: filterMember ? "#FAF6F1" : "#8B8580", border: "1px solid #EDE8E1", borderRadius: 20, padding: "4px 10px", outline: "none", cursor: "pointer" }}
+          >
+            <option value="">All members</option>
+            {members.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
+
+        {hasFilters && (
+          <button
+            onClick={() => { setSearch(""); setFilterCat(""); setFilterMember(""); }}
+            style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, padding: "4px 10px", borderRadius: 20, border: "1px solid #E07A5F44", background: "#E07A5F12", color: "#E07A5F", cursor: "pointer" }}
+          >
+            ✕ Clear
+          </button>
+        )}
+      </div>
+
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "24px 0", color: "#8B8580", fontFamily: "'DM Sans', sans-serif", fontSize: 13 }}>
+          No results found.
+        </div>
+      )}
+
       {Object.entries(grouped).map(([date, exps]) => (
         <div key={date} style={{ marginBottom: 12 }}>
           <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, color: "#8B8580", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: 0.5 }}>
@@ -809,7 +873,7 @@ export default function App() {
           <SpendingAlerts  currency={currency} categories={categories} expenses={expenses} />
           <CategoryBreakdown currency={currency} categories={categories} expenses={expenses} onAddCategory={addCategory} onUpdateCategory={updateCategory} />
           <WeeklyTrend   currency={currency} expenses={expenses} />
-          <ExpenseList   currency={currency} expenses={expenses} onDelete={delExpense} />
+          <ExpenseList   currency={currency} expenses={expenses} categories={categories} members={members} onDelete={delExpense} />
         </>
       )}
 
