@@ -98,6 +98,15 @@ jobs:
         working-directory: expense-tracker-rn
         run: npm ci --legacy-peer-deps
 
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('expense-tracker-rn/package-lock.json') }}
+          restore-keys: gradle-
+
       - name: Expo prebuild — generate Android native project
         working-directory: expense-tracker-rn
         run: npx expo prebuild --platform android --non-interactive
@@ -106,9 +115,9 @@ jobs:
         working-directory: expense-tracker-rn/android
         run: chmod +x gradlew
 
-      - name: Build debug APK
+      - name: Build debug APK (arm64-v8a only for speed)
         working-directory: expense-tracker-rn/android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon -Pandroid.injected.abis=arm64-v8a
 
       - name: Rename APK
         run: |
