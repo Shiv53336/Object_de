@@ -34,6 +34,29 @@ const DEFAULT_MEMBERS = ["Dad", "Mom", "Kid"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function exportCSV(expenses, currency) {
+  const header = ["Date", "Category", "Note", "Amount", "Payment", "Member"];
+  const rows = expenses
+    .slice()
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map(e => [
+      e.date,
+      e.category,
+      `"${(e.note || "").replace(/"/g, '""')}"`,
+      e.amount,
+      e.payment || "",
+      e.member  || "",
+    ]);
+  const csv = [header, ...rows].map(r => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = `expenses-${new Date().toISOString().slice(0, 7)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function useLocalStorage(key, initial) {
   const [value, setValue] = useState(() => {
     try {
@@ -693,7 +716,7 @@ function ExpenseList({ currency, expenses, categories, members, onDelete }) {
 
 // ─── Settings View ────────────────────────────────────────────────────────────
 
-function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onClearAll, recurring, onDeleteRecurring, members, onAddMember, onDeleteMember }) {
+function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onClearAll, recurring, onDeleteRecurring, members, onAddMember, onDeleteMember, expenses }) {
   const [budgetInput, setBudgetInput] = useState(totalBudget);
   const [newMember,   setNewMember]   = useState("");
 
@@ -781,6 +804,16 @@ function SettingsView({ currency, setCurrency, totalBudget, setTotalBudget, onCl
 
       <div style={{ background: "#fff", borderRadius: 16, padding: 16, border: "1px solid #EDE8E1" }}>
         <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#5A5550", margin: "0 0 8px" }}>Data</p>
+        <button
+          onClick={() => exportCSV(expenses, currency)}
+          disabled={expenses.length === 0}
+          style={{ width: "100%", padding: "10px", background: expenses.length ? "#81B29A18" : "#FAF6F1", border: `1px solid ${expenses.length ? "#81B29A66" : "#EDE8E1"}`, borderRadius: 10, fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: expenses.length ? "#81B29A" : "#CCC5BB", cursor: expenses.length ? "pointer" : "default", marginBottom: 8 }}
+        >
+          📥 Export CSV
+        </button>
+        <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: "#8B8580", margin: "0 0 10px" }}>
+          Downloads all expenses as a spreadsheet — handy for insurance claims or yearly review.
+        </p>
         <button onClick={onClearAll} style={{ width: "100%", padding: "10px", background: "#E07A5F18", border: "1px solid #E07A5F44", borderRadius: 10, fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: "#E07A5F", cursor: "pointer" }}>
           🗑️ Clear All Expenses
         </button>
@@ -893,7 +926,7 @@ export default function App() {
         <SettingsView
           currency={currency}       setCurrency={setCurrency}
           totalBudget={totalBudget} setTotalBudget={setTotalBudget}
-          onClearAll={clearAll}
+          onClearAll={clearAll}     expenses={expenses}
           recurring={recurring}     onDeleteRecurring={deleteRecurring}
           members={members}         onAddMember={addMember}  onDeleteMember={deleteMember}
         />
