@@ -56,9 +56,20 @@ jobs:
       - name: Patch Kotlin version to 1.9.0
         working-directory: flutter_expense_tracker/android
         run: |
-          sed -i "s/ext.kotlin_version = '[^']*'/ext.kotlin_version = '1.9.0'/" build.gradle
-          echo "✅ Kotlin version patched to 1.9.0"
-          grep kotlin_version build.gradle
+          # Flutter 3.19+ puts kotlin version in settings.gradle
+          if grep -q "org.jetbrains.kotlin.android" settings.gradle 2>/dev/null; then
+            sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.0"/' settings.gradle
+            echo "✅ Kotlin version patched in settings.gradle"
+            grep "kotlin" settings.gradle
+          elif grep -q "kotlin_version" build.gradle 2>/dev/null; then
+            sed -i "s/ext.kotlin_version = '[^']*'/ext.kotlin_version = '1.9.0'/" build.gradle
+            echo "✅ Kotlin version patched in build.gradle"
+            grep "kotlin_version" build.gradle
+          else
+            echo "⚠️ kotlin version line not found, listing gradle files for debug:"
+            cat build.gradle
+            cat settings.gradle || true
+          fi
 
       # ── 7. Install dependencies ─────────────────────────────────────────────
       - name: Flutter pub get
