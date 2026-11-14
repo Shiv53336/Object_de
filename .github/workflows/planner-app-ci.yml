@@ -1,0 +1,55 @@
+name: Planner App — Build & Test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "planner-app/**"
+      - ".github/workflows/planner-app-ci.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "planner-app/**"
+      - ".github/workflows/planner-app-ci.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: planner-app
+
+jobs:
+  build:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: planner-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: planner-app-web-build
+          path: planner-app/dist
+          retention-days: 30
