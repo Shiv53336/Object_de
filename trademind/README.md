@@ -27,8 +27,8 @@ set -a; source .env; set +a
 trademind data download --start 2025-05-01 --end 2025-11-14   # history for features and backtests
 trademind backtest --start 2025-06-02 --end 2026-04-30 --source parquet
 
-# every trading day, before 09:15
-trademind login                  # paste the request_token; valid for today only
+# every trading day, before 09:15 (or let the AWS timer do it: see docs/OPERATIONS.md)
+trademind login                  # or --telegram to log in from your phone
 trademind paper run              # runs until 15:30, then journals and sends a summary
 ```
 
@@ -98,4 +98,6 @@ Placeholders to set yourself: index lot sizes, and the risk unit for index futur
 | [`docs/PLAN.md`](docs/PLAN.md) | Engineering contract: data, fills, costs, risk, validation, deviations from the blueprint |
 | [`docs/STRATEGIES.md`](docs/STRATEGIES.md) | Exact rules for every feature and setup |
 | [`docs/TASKS.md`](docs/TASKS.md) | Remaining work as cards |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Kite and Telegram setup, AWS deployment, daily routine, backups |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Decisions taken during the build, with reasons |
 | [`CLAUDE.md`](CLAUDE.md) | Rules for the coding model working through the cards |

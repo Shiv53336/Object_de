@@ -19,6 +19,9 @@ The owner asked for the build to be completed end to end, with design decisions 
 | D13 | 2026-11-17 | Synthetic volume rises with the size of each minute's move | Exercises relative-volume features; still no edge by construction | - |
 | D14 | 2026-11-17 | LLM: AWS Bedrock, Haiku-class for routine tagging, Sonnet-class for reviews | Matches the blueprint and the owner's AWS stack | Cost or quality data |
 | D15 | 2026-11-17 | News: free sources first (RSS feeds, NSE corporate announcements) | No cost until news proves useful in the scoreboard | If news tags show value |
+| D16 | 2026-11-17 | Daily Kite login through Telegram: the bot sends the link, the owner pastes back the redirect URL | Works from a phone with no public endpoint on the server | - |
+| D17 | 2026-11-17 | AWS: one t4g.medium in ap-south-1, default VPC, no inbound ports, SSM only, Elastic IP, encrypted EBS/S3, budget alert | Blueprint section 14 at the smallest sensible size | Load or reliability data |
+| D18 | 2026-11-17 | Scheduling with systemd timers on the instance (08:40 weekdays, backup 20:00) | Fewer moving parts than EventBridge plus SSM Run Command | - |
 
 ## Findings worth knowing
 

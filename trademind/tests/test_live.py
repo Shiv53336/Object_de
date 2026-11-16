@@ -175,3 +175,39 @@ def test_notifier_sends_and_never_raises() -> None:
 
     bad = Notifier("T", "42", client=httpx.Client(transport=httpx.MockTransport(boom)))
     assert bad.error("x") is False
+
+
+def test_telegram_login_flow() -> None:
+    calls: list[str] = []
+    replies = iter([
+        {"ok": True, "result": [{"update_id": 5, "message": {"chat": {"id": 42}, "text": "old"}}]},
+        {"ok": True, "result": [
+            {"update_id": 6, "message": {"chat": {"id": 999}, "text": "request_token=STRANGER1"}},
+            {"update_id": 7, "message": {"chat": {"id": 42},
+                                         "text": "https://127.0.0.1/?action=login&request_token=Abc123XYZ&status=success"}},
+        ]},
+    ])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(f"{request.method} {request.url.path} {request.url.query.decode()}")
+        if request.url.path.endswith("/getUpdates"):
+            return httpx.Response(200, json=next(replies))
+        return httpx.Response(200, json={"ok": True})
+
+    n = Notifier("T", "42", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert n.wait_for_request_token("https://kite/login") == "Abc123XYZ"
+    assert calls[0].endswith("timeout=0") and "sendMessage" in calls[1] and "offset=6" in calls[2]
+
+
+def test_telegram_login_times_out() -> None:
+    t = [0.0]
+
+    def clock() -> float:
+        t[0] += 1000
+        return t[0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True, "result": []})
+
+    n = Notifier("T", "42", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert n.wait_for_request_token("https://kite/login", timeout_s=1500, clock=clock) is None

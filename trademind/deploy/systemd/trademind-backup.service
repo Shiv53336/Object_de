@@ -1,0 +1,11 @@
+[Unit]
+Description=TRADEMIND backup to S3
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ec2-user
+WorkingDirectory=/opt/trademind/trademind
+EnvironmentFile=/opt/trademind/trademind/.env
+ExecStart=/opt/trademind/trademind/deploy/backup.sh

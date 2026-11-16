@@ -234,20 +234,39 @@ def runs(limit: int = 20) -> None:
 
 
 @app.command()
-def login() -> None:
+def login(
+    telegram: Annotated[bool, typer.Option(help="Send the login link on Telegram, wait for reply")] = False,
+    timeout: Annotated[int, typer.Option(help="Seconds to wait for the Telegram reply")] = 1800,
+) -> None:
     """Daily Kite login: open the URL, log in, paste the request_token from the redirect URL."""
     key, secret = _kite_env()
     if not secret:
         typer.echo("error: set KITE_API_SECRET in .env", err=True)
         raise typer.Exit(2)
+    store = TokenStore(runtime_paths().data_dir / "kite_token.json")
+    if store.load(_now().date()):
+        typer.echo("Already logged in for today.")
+        return
     gateway = KiteGateway(make_kite_client(key))
-    typer.echo(f"1. Open: {gateway.login_url()}")
-    typer.echo("2. After login, copy request_token=... from the redirect URL.")
-    request_token = typer.prompt("request_token").strip()
+    if telegram:
+        notifier = Notifier()
+        if not notifier.enabled:
+            typer.echo("error: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID for --telegram", err=True)
+            raise typer.Exit(2)
+        request_token = notifier.wait_for_request_token(gateway.login_url(), timeout_s=timeout)
+        if not request_token:
+            typer.echo("error: no login received", err=True)
+            raise typer.Exit(3)
+    else:
+        typer.echo(f"1. Open: {gateway.login_url()}")
+        typer.echo("2. After login, copy request_token=... from the redirect URL.")
+        request_token = typer.prompt("request_token").strip()
     access = gateway.create_session(request_token, secret)
-    TokenStore(runtime_paths().data_dir / "kite_token.json").save(access, _now().date())
+    store.save(access, _now().date())
     user = KiteGateway(make_kite_client(key, access)).profile().get("user_name", "?")
     typer.echo(f"Logged in as {user}. Session valid for today only.")
+    if telegram:
+        Notifier().send(f"TRADEMIND: logged in as {user}. Paper trading starts at 09:15.")
 
 
 @app.command()

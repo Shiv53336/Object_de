@@ -46,7 +46,7 @@ The research core is built and tested (see "Done"). The cards below are the rema
 | T09 | Live paper runner | design first | done (`docs/design/T09-live-paper.md`) |
 | T10 | Telegram notifier | small | done |
 | T11 | Redis Streams event bus | design first | todo |
-| T12 | AWS deployment (Terraform, EC2, SSM, backups) | design first | todo |
+| T12 | AWS deployment (Terraform, EC2, SSM, backups) | design first | done (`docs/OPERATIONS.md`) |
 | T13 | LLM client and daily post-mortem | design first | todo |
 | T14 | Setup judge, shadow mode | design first | todo |
 | T15 | Weekly review and hypothesis backlog | design first | todo |
