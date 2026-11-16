@@ -41,10 +41,10 @@ The research core is built and tested (see "Done"). The cards below are the rema
 | T04 | Strategy: first_half_hour_momentum | small | todo |
 | T05 | Validation and promotion gate | small | todo |
 | T06 | Alembic migrations | small | todo |
-| T07 | Kite read-only gateway, login, instruments, history download | small | todo |
-| T08 | Tick-to-bar aggregator | small | todo |
-| T09 | Live paper runner | design first | todo |
-| T10 | Telegram notifier | small | todo |
+| T07 | Kite read-only gateway, login, instruments, history download | small | done |
+| T08 | Tick-to-bar aggregator | small | done |
+| T09 | Live paper runner | design first | done (`docs/design/T09-live-paper.md`) |
+| T10 | Telegram notifier | small | done |
 | T11 | Redis Streams event bus | design first | todo |
 | T12 | AWS deployment (Terraform, EC2, SSM, backups) | design first | todo |
 | T13 | LLM client and daily post-mortem | design first | todo |
