@@ -1,0 +1,4 @@
+# Expiry dates by key: "NIFTY 50", "NIFTY BANK", or "STOCKS".
+# Fill by hand, or from the Kite instruments dump going forward.
+# A year with no dates for a key gives is_expiry_day = "unknown" (STRATEGIES Part B).
+{}

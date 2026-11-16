@@ -1,0 +1,64 @@
+# TRADEMIND settings. Times must be quoted strings.
+timezone: Asia/Kolkata
+
+session:
+  open: "09:15"
+  close: "15:30"
+  base_interval: 1minute        # stored and simulated resolution (PLAN 4.1)
+  last_entry_time: "14:45"
+  squareoff_time: "15:20"
+
+market_symbol: "NIFTY 50"
+
+universe:
+  indices:
+    # lot_size values are PLACEHOLDERS. Check current NSE contract specs before relying on them.
+    - {symbol: "NIFTY 50", exchange: NSE, lot_size: 75, tick_size: 0.05}
+    - {symbol: "NIFTY BANK", exchange: NSE, lot_size: 30, tick_size: 0.05}
+  stocks:
+    - {symbol: RELIANCE}
+    - {symbol: HDFCBANK}
+    - {symbol: ICICIBANK}
+    - {symbol: INFY}
+    - {symbol: TCS}
+    - {symbol: SBIN}
+    - {symbol: AXISBANK}
+    - {symbol: LT}
+    - {symbol: ITC}
+    - {symbol: BHARTIARTL}
+
+risk:                            # per strategy instance (PLAN 6)
+  risk_per_trade_inr: 1000       # 1R
+  max_notional_inr: 500000
+  segment_overrides:
+    # One Nifty futures lot is ~Rs 18 lakh notional; at Rs 1,000 per R it could never be sized.
+    # PLACEHOLDER values: an index trade fits when its stop is within ~100 Nifty points.
+    FUT: {risk_per_trade_inr: 7500, max_notional_inr: 2500000}
+  max_trades_per_day: 3
+  max_open_positions: 2
+  max_consecutive_losses: 2
+  daily_loss_limit_r: -3.0
+  kill_switch: false
+
+selector:
+  top_n: 5
+  min_or_rvol: 1.5
+  or_minutes: 15                 # stocks in play are chosen at 09:30
+
+backtest:
+  warmup_days: 160               # calendar days of history loaded before the start date
+
+analytics:
+  min_trades: 100
+
+validation:
+  holdout_start: "2026-05-01"    # research runs may not read on or after this date
+  bootstrap_resamples: 10000
+  bootstrap_seed: 7
+  min_research_trades: 100
+  max_drawdown_r: 15
+  min_holdout_trades: 30
+  max_holdout_evals: 2
+
+execution:
+  mode: PAPER                    # the only mode this version accepts

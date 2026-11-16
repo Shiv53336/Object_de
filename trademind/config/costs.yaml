@@ -1,0 +1,42 @@
+# Source: zerodha.com/charge-list, read 2026-11-14. Re-check before any live use.
+# All rates are fractions of traded value (0.03% is 0.0003). See PLAN 7.
+gst: 0.18
+
+segments:
+  EQ_INTRADAY:
+    brokerage_pct: 0.0003
+    brokerage_cap: 20
+    stt_buy: 0.0
+    stt_sell: 0.00025
+    txn: 0.0000307
+    sebi_per_crore: 10
+    stamp_buy: 0.00003
+  EQ_DELIVERY:
+    brokerage_pct: 0.0
+    stt_buy: 0.001
+    stt_sell: 0.001
+    txn: 0.0000307
+    sebi_per_crore: 10
+    stamp_buy: 0.00015
+  FUT:
+    brokerage_pct: 0.0003
+    brokerage_cap: 20
+    stt_buy: 0.0
+    stt_sell: 0.0005
+    txn: 0.0000183
+    sebi_per_crore: 10
+    stamp_buy: 0.00002
+  OPT:
+    brokerage_flat: 20
+    stt_buy: 0.0
+    stt_sell: 0.0015
+    txn: 0.0003553
+    sebi_per_crore: 10
+    stamp_buy: 0.00003
+
+# Per side, in basis points of price. Starting guesses; calibrate against live paper fills.
+slippage_bps:
+  EQ_INTRADAY: 3
+  EQ_DELIVERY: 5
+  FUT: 1.5
+  OPT: 50
