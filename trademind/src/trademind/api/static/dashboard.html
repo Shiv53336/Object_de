@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TRADEMIND</title>
+<style>
+  :root { --bg:#0b0b0c; --panel:#141416; --line:#26262a; --text:#d9d9de; --muted:#8b8b93; --gold:#c9a24b; --up:#5fb37c; --down:#d06a6a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display:flex; gap:12px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:16px; letter-spacing:.2em; color:var(--gold); font-weight:600; }
+  header .mode { font-size:12px; color:var(--muted); border:1px solid var(--line); padding:2px 8px; border-radius:10px; }
+  main { padding:16px 20px; display:grid; gap:16px; max-width:1300px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; overflow-x:auto; }
+  h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:500; text-transform:uppercase; letter-spacing:.08em; }
+  input, select, button { background:#0f0f11; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
+  button { cursor:pointer; border-color:var(--gold); color:var(--gold); }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { text-align:right; padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:500; }
+  tr.sel td { background:#1c1a14; }
+  tbody tr:hover td { background:#18181b; cursor:pointer; }
+  .pos { color:var(--up); } .neg { color:var(--down); } .muted { color:var(--muted); }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  #err { color:var(--down); }
+  svg { width:100%; height:220px; }
+</style>
+</head>
+<body>
+<header><h1>TRADEMIND</h1><span class="mode" id="mode">PAPER</span>
+  <div class="row" style="margin-left:auto"><input id="token" type="password" placeholder="API token" size="28"><button id="go">Load</button></div>
+</header>
+<main>
+  <div id="err"></div>
+  <section><h2>Runs</h2><table id="runs"></table></section>
+  <section><div class="row"><h2 style="margin:0">Scoreboard</h2>
+    <select id="by"><option value="">by instance</option><option>market_regime</option><option>time_bucket</option><option>timeframe</option><option>gap_bucket</option><option>day_type</option><option>vol_regime</option><option>daily_trend</option><option>trend_60m_at_entry</option><option>is_expiry_day</option></select>
+    <span class="muted" id="runlabel"></span></div><table id="board" style="margin-top:10px"></table></section>
+  <section><h2>Cumulative R by instance</h2><svg id="curve" viewBox="0 0 1000 220" preserveAspectRatio="none"></svg><div id="legend" class="row muted"></div></section>
+  <section><h2>Trades (latest 300)</h2><table id="trades"></table></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let runId = null;
+$("token").value = sessionStorage.getItem("tm_token") || "";
+async function api(path) {
+  const r = await fetch(path, { headers: { Authorization: "Bearer " + $("token").value } });
+  if (!r.ok) throw new Error(path + ": " + r.status + " " + (await r.text()));
+  return r.json();
+}
+const fmt = (v, d = 2) => v === null || v === undefined || Number.isNaN(v) ? "-" : (typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }) : String(v));
+const cls = (v) => typeof v === "number" ? (v > 0 ? "pos" : v < 0 ? "neg" : "") : "";
+function table(el, rows, cols, onClick, selKey) {
+  if (!rows.length) { el.innerHTML = "<tr><td class='muted'>nothing yet</td></tr>"; return; }
+  el.innerHTML = "<thead><tr>" + cols.map(c => `<th>${c[1]}</th>`).join("") + "</tr></thead><tbody>" +
+    rows.map((r, i) => `<tr data-i="${i}" class="${selKey && r[selKey] === runId ? "sel" : ""}">` + cols.map(([k, , d, colour]) =>
+      `<td class="${colour ? cls(r[k]) : ""}">${d === undefined ? fmt(r[k] ?? "-", 0).replace(/\.00$/, "") : fmt(r[k], d)}</td>`).join("") + "</tr>").join("") + "</tbody>";
+  if (onClick) el.querySelectorAll("tbody tr").forEach(tr => tr.onclick = () => onClick(rows[+tr.dataset.i]));
+}
+function curve(trades) {
+  const svg = $("curve"), groups = {};
+  trades.slice().sort((a, b) => a.exit_ts < b.exit_ts ? -1 : 1).forEach(t => (groups[t.instance_id] ||= []).push(t.r_multiple));
+  const series = Object.entries(groups).map(([k, rs]) => [k, rs.reduce((acc, r) => (acc.push((acc.at(-1) || 0) + r), acc), [])]);
+  const all = series.flatMap(s => s[1]).concat([0]), lo = Math.min(...all), hi = Math.max(...all), n = Math.max(1, ...series.map(s => s[1].length));
+  const y = (v) => 210 - (v - lo) / ((hi - lo) || 1) * 200, x = (i) => i / Math.max(1, n - 1) * 1000;
+  const palette = ["#c9a24b", "#9aa7b8", "#5fb37c", "#d06a6a", "#8f7fc9", "#5fa8b3", "#c98f5f", "#b3b35f", "#c95f9e", "#7f8f9e", "#e0e0e0"];
+  svg.innerHTML = `<line x1="0" x2="1000" y1="${y(0)}" y2="${y(0)}" stroke="#333" stroke-dasharray="4"/>` + series.map(([, pts], i) =>
+    `<polyline fill="none" stroke="${palette[i % palette.length]}" stroke-width="1.6" points="${pts.map((v, j) => x(j) + "," + y(v)).join(" ")}"/>`).join("");
+  $("legend").innerHTML = series.map(([k, pts], i) => `<span style="color:${palette[i % palette.length]}">${k} ${fmt(pts.at(-1))}R</span>`).join("");
+}
+async function loadRun(run) {
+  runId = run.run_id;
+  $("runlabel").textContent = `${run.data_split} ${run.period_start} .. ${run.period_end}`;
+  const by = $("by").value;
+  const [board, trades] = await Promise.all([api(`/runs/${runId}/scoreboard` + (by ? `?by=${by}` : "")), api(`/runs/${runId}/trades?limit=5000`)]);
+  const bcols = [["instance_id", "instance"]].concat(by ? [[by, by]] : []).concat([["n_trades", "trades"], ["win_rate", "win %", 2], ["expectancy_r", "exp R", 2, 1], ["profit_factor", "PF", 2], ["max_drawdown_r", "max DD R", 1], ["total_net_pnl", "net Rs", 0, 1], ["cost_share", "cost share", 2], ["false_breakout_rate", "false BO", 2], ["stopped_then_right_rate", "stop then right", 2]]);
+  table($("board"), board, bcols);
+  curve(trades);
+  table($("trades"), trades.slice(-300).reverse(), [["exit_ts", "exit"], ["instance_id", "instance"], ["symbol", "symbol"], ["side", "side"], ["qty", "qty"], ["entry_price", "entry", 2], ["exit_price", "exit", 2], ["exit_reason", "reason"], ["r_multiple", "R", 2, 1], ["net_pnl", "net Rs", 0, 1]]);
+  await loadRuns(false);
+}
+async function loadRuns(pickFirst = true) {
+  const runs = await api("/runs?limit=100");
+  table($("runs"), runs, [["started_at", "started"], ["data_split", "split"], ["period_start", "from"], ["period_end", "to"], ["status", "status"], ["n_trades", "trades"]], loadRun, "run_id");
+  if (pickFirst && runs.length) await loadRun(runs[0]);
+}
+async function go() {
+  $("err").textContent = "";
+  sessionStorage.setItem("tm_token", $("token").value);
+  try { const h = await (await fetch("/health")).json(); $("mode").textContent = h.mode + " · db " + h.db; await loadRuns(); }
+  catch (e) { $("err").textContent = e.message; }
+}
+$("go").onclick = go;
+$("by").onchange = () => runId && api("/runs?limit=100").then(rs => loadRun(rs.find(r => r.run_id === runId))).catch(e => $("err").textContent = e.message);
+if ($("token").value) go();
+</script>
+</body>
+</html>

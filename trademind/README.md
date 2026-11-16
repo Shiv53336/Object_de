@@ -14,6 +14,7 @@ A research-first trading platform for NSE (Nifty, Bank Nifty and liquid stocks).
 - Live paper trading from Kite ticks, proven to make the same decisions as the backtest, with Telegram alerts and a Telegram-based daily login.
 - AI research on AWS Bedrock (off by default): daily post-mortem and weekly review with at most two proposals, under a hard monthly budget. Advisory only.
 - Market regime tag on every trade, so results can be split by market condition.
+- Dashboard at `/dashboard` on the API: runs, scoreboard by any tag, cumulative R per strategy, trades.
 - AWS deployment: Terraform, systemd timers, nightly S3 backups.
 - Paper broker with 1-minute fills, gaps, costs, slippage, MFE/MAE, and trap diagnostics: how often a stopped trade would have hit its target anyway.
 - Independent risk engine that fails closed, with a kill switch.
@@ -79,7 +80,7 @@ Ports bind to 127.0.0.1 only. On AWS, use a small instance in ap-south-1 (Mumbai
 | `trademind strategies` | Implemented strategies and configured instances |
 | `trademind data synth --start --end` | Write synthetic 1-minute bars to the Parquet store |
 | `trademind data validate --symbol S --start --end` | Check stored bars against the bar contract |
-| `trademind api` | Serve the read-only API |
+| `trademind api` | Serve the read-only API and the dashboard (http://127.0.0.1:8000) |
 
 Useful `--by` tags: `market_regime`, `time_bucket`, `timeframe`, `gap_bucket`, `day_type`, `vol_regime`, `daily_trend`, `trend_60m_at_entry`, `market_trend_at_entry`, `or_width_bucket`, `is_expiry_day`.
 

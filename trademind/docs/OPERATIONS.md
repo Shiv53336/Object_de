@@ -78,7 +78,7 @@ If no login arrives within 30 minutes, the bot says so and that day is skipped. 
 
 ### Looking at results
 ```bash
-aws ssm start-session ... (terraform output api_tunnel)    # then http://127.0.0.1:8000 on your laptop
+aws ssm start-session ... (terraform output api_tunnel)    # then open http://127.0.0.1:8000/dashboard
 curl -H "Authorization: Bearer $TRADEMIND_API_TOKEN" http://127.0.0.1:8000/runs
 docker compose run --rm api trademind runs
 docker compose run --rm api trademind report --run-id <id> --by time_bucket

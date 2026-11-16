@@ -27,6 +27,7 @@ The owner asked for the build to be completed end to end, with design decisions 
 | D21 | 2026-11-17 | Weekly review proposals capped at two in code and written to files only | Keeps the trial count honest; the owner decides | - |
 | D22 | 2026-11-17 | Setup judge (T14) deferred until a news feed exists | With only price features the judge would repeat what the rules already know | After T16 |
 | D23 | 2026-11-17 | Market regime: rule-based label from the market symbol's session-start trend and volatility | Explainable, no lookahead; becomes a scoreboard dimension (`--by market_regime`) | After enough paper trades per regime |
+| D24 | 2026-11-17 | Dashboard as one static page served by the API, not a separate Next.js app | No build chain or extra service; the token stays in the browser session; reached through the SSM tunnel | If several people need access |
 
 ## Findings worth knowing
 

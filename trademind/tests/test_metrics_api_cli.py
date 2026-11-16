@@ -76,6 +76,12 @@ def test_health_is_public(client: TestClient) -> None:
     assert r.status_code == 200 and r.json()["db"] == "ok" and r.json()["mode"] == "PAPER"
 
 
+def test_dashboard_page_is_static(client: TestClient) -> None:
+    r = client.get("/dashboard")
+    assert r.status_code == 200 and "TRADEMIND" in r.text and "Authorization" in r.text
+    assert client.get("/", follow_redirects=False).headers["location"] == "/dashboard"
+
+
 def test_endpoints_need_token(client: TestClient, tmp_path) -> None:
     assert client.get("/runs").status_code == 401
     assert client.get("/runs", headers={"Authorization": "Bearer wrong"}).status_code == 401

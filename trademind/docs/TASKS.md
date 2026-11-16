@@ -53,7 +53,7 @@ The research core is built and tested (see "Done"). The cards below are the rema
 | T16 | News ingestion | design first | todo |
 | T17 | Market regime engine | design first | done (rule-based `market_regime` tag) |
 | T18 | Swing engine and swing_vcp | design first | todo |
-| T19 | Dashboard | design first | todo |
+| T19 | Dashboard | design first | done (`/dashboard` on the API) |
 | T20 | Options and expiry | design first | todo |
 
 ---
