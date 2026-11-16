@@ -11,7 +11,10 @@ A research-first trading platform for NSE (Nifty, Bank Nifty and liquid stocks).
 - Six intraday strategies, each on 5 and 15 minutes: `orb_momentum`, `failed_orb_fade`, `overextension_fade`, `intraday_contraction`, `first_half_hour_momentum`, and `sweep_reversal` (trading the stop run at yesterday's high or low).
 - Validation gate: `trademind validate` checks a strategy on held-out data with a bootstrap and a multiple-testing correction.
 - Real data from Zerodha Kite (read-only): daily login, instruments, history download.
-- Live paper trading from Kite ticks, proven to make the same decisions as the backtest, with Telegram alerts.
+- Live paper trading from Kite ticks, proven to make the same decisions as the backtest, with Telegram alerts and a Telegram-based daily login.
+- AI research on AWS Bedrock (off by default): daily post-mortem and weekly review with at most two proposals, under a hard monthly budget. Advisory only.
+- Market regime tag on every trade, so results can be split by market condition.
+- AWS deployment: Terraform, systemd timers, nightly S3 backups.
 - Paper broker with 1-minute fills, gaps, costs, slippage, MFE/MAE, and trap diagnostics: how often a stopped trade would have hit its target anyway.
 - Independent risk engine that fails closed, with a kill switch.
 - Journal in PostgreSQL (or SQLite locally), scoreboard by strategy and by any context tag, read-only API.
@@ -70,6 +73,7 @@ Ports bind to 127.0.0.1 only. On AWS, use a small instance in ap-south-1 (Mumbai
 | `trademind paper run` | Live paper trading for today (simulated fills) |
 | `trademind data download --start --end [--symbols a,b\|all]` | Kite 1-minute history into the Parquet store |
 | `trademind data instruments [--write-expiries]` | Refresh the instruments dump, check lot sizes, record expiries |
+| `trademind research postmortem` / `weekly` | AI notes on the latest paper day / week (needs research enabled) |
 | `trademind report --run-id ID [--by TAG]` | Scoreboard of a past run |
 | `trademind runs` | Recent runs |
 | `trademind strategies` | Implemented strategies and configured instances |
@@ -77,7 +81,7 @@ Ports bind to 127.0.0.1 only. On AWS, use a small instance in ap-south-1 (Mumbai
 | `trademind data validate --symbol S --start --end` | Check stored bars against the bar contract |
 | `trademind api` | Serve the read-only API |
 
-Useful `--by` tags: `time_bucket`, `timeframe`, `gap_bucket`, `day_type`, `vol_regime`, `daily_trend`, `trend_60m_at_entry`, `market_trend_at_entry`, `or_width_bucket`, `is_expiry_day`.
+Useful `--by` tags: `market_regime`, `time_bucket`, `timeframe`, `gap_bucket`, `day_type`, `vol_regime`, `daily_trend`, `trend_60m_at_entry`, `market_trend_at_entry`, `or_width_bucket`, `is_expiry_day`.
 
 ## Configuration
 

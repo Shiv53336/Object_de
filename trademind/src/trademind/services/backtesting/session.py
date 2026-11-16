@@ -8,7 +8,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from trademind.services.feature_engine.context import trade_tags
+from trademind.services.feature_engine.context import market_regime, trade_tags
 from trademind.services.feature_engine.selector import select_in_play
 from trademind.services.paper_broker.broker import (
     Bar,
@@ -111,6 +111,7 @@ class EngineSession:
         self._res = DayResult()
         self._cache: dict[str, tuple[DayFrames, _Grid, dict[int, dict[int, int]]]] = {}
         self._stamps = session_grid(day, self.session.open, self.session.close, self.b)
+        self._regime: str | None = None
 
     def _sync(self, frames: dict[str, DayFrames]) -> tuple[dict[str, _Grid], dict]:
         """Grids and timeframe-row maps, rebuilt only for frames objects that changed."""
@@ -125,6 +126,7 @@ class EngineSession:
     def step(self, g: int, frames: dict[str, DayFrames], opening: dict[str, dict] | None = None) -> None:
         """Process base bar g: broker first, then selection, then strategies closing at g."""
         grids, tf_rows = self._sync(frames)
+        self._tag_regime(frames)
         for sym in self.broker.active_symbols():
             gr = grids.get(sym)
             if gr is not None and gr.has[g]:
@@ -135,11 +137,20 @@ class EngineSession:
         for minutes in self.closes_at.get(g, ()):
             self._evaluate(minutes, g, frames, tf_rows)
 
+    def _tag_regime(self, frames: dict[str, DayFrames]) -> None:
+        """Market regime from the market symbol's session-start tags, copied to every symbol."""
+        if self._regime is None and self.market_symbol in frames:
+            self._regime = market_regime(frames[self.market_symbol].ctx.tags)
+        if self._regime is not None:
+            for fr in frames.values():
+                fr.ctx.tags.setdefault("market_regime", self._regime)
+
     def closed_trades(self) -> list[Trade]:
         return list(self._res.trades)
 
     def finish_day(self, frames: dict[str, DayFrames], eod: dict[str, dict]) -> DayResult:
         grids, _ = self._sync(frames)
+        self._tag_regime(frames)
         res = self._res
         stamps = self._stamps
         for sym in self.broker.active_symbols():

@@ -62,3 +62,14 @@ validation:
 
 execution:
   mode: PAPER                    # the only mode this version accepts
+
+research:                        # AI research layer: advisory only (PLAN 11)
+  enabled: false                 # set true after filling the model ids below
+  provider: bedrock
+  region: ap-south-1
+  # Bedrock model or inference-profile ids, copied from the Bedrock console for your region.
+  routine_model: ""              # Haiku-class: daily post-mortem
+  deep_model: ""                 # Sonnet-class: weekly review
+  monthly_budget_usd: 15         # hard stop: no LLM calls once month-to-date cost reaches this
+  max_output_tokens: 1500
+  prices: {}                     # per model id, e.g. "<id>": {input_per_mtok_usd: 2, output_per_mtok_usd: 10}

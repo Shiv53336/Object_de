@@ -14,6 +14,7 @@ import yaml
 
 from trademind import __version__
 from trademind.database.journal import Journal
+from trademind.services.ai_research.review import daily_postmortem, make_llm, telegram_text, weekly_review
 from trademind.services.backtesting.runner import run_backtest
 from trademind.services.broker_gateway.kite import (
     InstrumentDirectory,
@@ -40,8 +41,10 @@ from trademind.shared.logging import setup_logging
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="TRADEMIND (paper trading only)")
 data_app = typer.Typer(no_args_is_help=True, help="Market data tools")
 paper_app = typer.Typer(no_args_is_help=True, help="Live paper trading (simulated fills only)")
+research_app = typer.Typer(no_args_is_help=True, help="AI research notes (advisory only)")
 app.add_typer(data_app, name="data")
 app.add_typer(paper_app, name="paper")
+app.add_typer(research_app, name="research")
 
 ConfigDir = Annotated[Path | None, typer.Option(help="Config directory (default: ./config)")]
 Source = Annotated[str, typer.Option(help="synthetic | parquet | csv | kite")]
@@ -381,6 +384,55 @@ def paper_run(
     finally:
         stream.stop()
     typer.echo(runner.summary(runner.result) if runner.result else "no result")
+
+
+@research_app.command("postmortem")
+def research_postmortem(
+    run_id: Annotated[str | None, typer.Option(help="Run to review (default: latest live run)")] = None,
+    config_dir: ConfigDir = None,
+) -> None:
+    """LLM review of one paper-trading day; writes data/reports and a Telegram summary."""
+    cfg = load_config(config_dir)
+    journal = Journal(runtime_paths().database_url)
+    if run_id is None:
+        runs = journal.read_runs(50)
+        live = runs[(runs["data_split"] == "live") & (runs["status"] == "done")] if not runs.empty else runs
+        if live.empty:
+            typer.echo("error: no finished live paper run to review", err=True)
+            raise typer.Exit(2)
+        run_id = str(live.iloc[0]["run_id"])
+    try:
+        note = daily_postmortem(cfg, journal, make_llm(cfg, journal), run_id,
+                                runtime_paths().data_dir / "reports")
+    except (TrademindError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    text = telegram_text("TRADEMIND post-mortem", note)
+    Notifier().send(text)
+    typer.echo(text)
+
+
+@research_app.command("weekly")
+def research_weekly(
+    start: Annotated[str | None, typer.Option(help="First day (default: 7 days ago)")] = None,
+    end: Annotated[str | None, typer.Option(help="Last day (default: today)")] = None,
+    config_dir: ConfigDir = None,
+) -> None:
+    """LLM review of the week; at most two proposals, written to data/research. Never applied."""
+    cfg = load_config(config_dir)
+    journal = Journal(runtime_paths().database_url)
+    today = _now().date()
+    a = _date(start) if start else today - pd.Timedelta(days=7).to_pytimedelta()
+    b = _date(end) if end else today
+    try:
+        out = runtime_paths().data_dir / "research"
+        note = weekly_review(cfg, journal, make_llm(cfg, journal), a, b, out)
+    except (TrademindError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    text = telegram_text("TRADEMIND weekly review", note)
+    Notifier().send(text)
+    typer.echo(text)
 
 
 @data_app.command("validate")

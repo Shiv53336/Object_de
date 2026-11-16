@@ -92,7 +92,14 @@ docker compose run --rm api trademind report --run-id <id> --by time_bucket
 - AWS: one t4g.medium, 30 GB gp3, an Elastic IP, small S3 usage. Check the current ap-south-1 price list; a budget alert emails you at 80% of `monthly_budget_usd` (default $110).
 - Bedrock: only once the research layer is enabled (T13), with its own monthly cap.
 
-## 4. Troubleshooting
+## 4. AI research notes (optional)
+1. In the Bedrock console (ap-south-1), enable access to an Anthropic Haiku-class and a Sonnet-class model and copy their model or inference-profile ids.
+2. In `config/settings.yaml` under `research:`, set `enabled: true`, `routine_model`, `deep_model`, and a `prices` entry for each id (USD per million input and output tokens, from the Bedrock pricing page).
+3. The instance role already allows `bedrock:InvokeModel`. On a laptop, use your AWS credentials.
+
+After each trading day `trademind research postmortem` writes `data/reports/<day>-postmortem.md` and sends a short Telegram note; on Fridays `trademind research weekly` writes at most two proposals to `data/research/`. Nothing is applied automatically. Spend stops at `monthly_budget_usd`.
+
+## 5. Troubleshooting
 | Symptom | Fix |
 |---|---|
 | `no Kite session for today` | Run `trademind login` (sessions expire daily) |
@@ -101,7 +108,7 @@ docker compose run --rm api trademind report --run-id <id> --by time_bucket
 | Daily timer did nothing | `journalctl -u trademind-daily -n 200` |
 | Lot sizes look wrong | `trademind data instruments`; the runner uses Kite's values when it starts |
 
-## 5. Before any real money (not built, by design)
+## 6. Before any real money (not built, by design)
 All of these are required, and none is automated:
 1. A strategy version passes `trademind validate`.
 2. At least 60 live paper trades for that version, with expectancy inside the research confidence interval.

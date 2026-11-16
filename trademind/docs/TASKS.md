@@ -47,11 +47,11 @@ The research core is built and tested (see "Done"). The cards below are the rema
 | T10 | Telegram notifier | small | done |
 | T11 | Redis Streams event bus | design first | todo |
 | T12 | AWS deployment (Terraform, EC2, SSM, backups) | design first | done (`docs/OPERATIONS.md`) |
-| T13 | LLM client and daily post-mortem | design first | todo |
-| T14 | Setup judge, shadow mode | design first | todo |
-| T15 | Weekly review and hypothesis backlog | design first | todo |
+| T13 | LLM client and daily post-mortem | design first | done (`services/ai_research/`) |
+| T14 | Setup judge, shadow mode | design first | deferred until news exists (T16) |
+| T15 | Weekly review and hypothesis backlog | design first | done (max two proposals, never applied) |
 | T16 | News ingestion | design first | todo |
-| T17 | Market regime engine | design first | todo |
+| T17 | Market regime engine | design first | done (rule-based `market_regime` tag) |
 | T18 | Swing engine and swing_vcp | design first | todo |
 | T19 | Dashboard | design first | todo |
 | T20 | Options and expiry | design first | todo |

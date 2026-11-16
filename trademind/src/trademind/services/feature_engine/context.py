@@ -145,6 +145,26 @@ def opening_stats(
     return st
 
 
+def market_regime(market_tags: dict) -> str:
+    """BLUEPRINT 5.7 regime label from session-start facts about the market symbol only.
+
+    Priority: unknown inputs -> UNCLASSIFIED; high volatility; trend up or down; low volatility;
+    otherwise SIDEWAYS. Expiry is tagged separately (is_expiry_day).
+    """
+    vol, trend = market_tags.get("vol_regime"), market_tags.get("daily_trend")
+    if vol in (None, "unknown") or trend in (None, "unknown"):
+        return "UNCLASSIFIED"
+    if vol == "high":
+        return "HIGH_VOLATILITY"
+    if trend == "up":
+        return "BULLISH_TREND"
+    if trend == "down":
+        return "BEARISH_TREND"
+    if vol == "low":
+        return "LOW_VOLATILITY"
+    return "SIDEWAYS"
+
+
 TIME_BUCKETS = (
     (time(9, 15), time(10, 0), "open"),
     (time(10, 0), time(11, 30), "morning"),

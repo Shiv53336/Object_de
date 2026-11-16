@@ -279,6 +279,34 @@ class Journal:
                     return run_id
         return None
 
+    def log_llm_usage(self, model: str, use_case: str, input_tokens: int, output_tokens: int,
+                      cost_usd: float) -> None:
+        with self.engine.begin() as cx:
+            cx.execute(insert(m.llm_usage).values(
+                ts=datetime.now(UTC), model=model, use_case=use_case, input_tokens=input_tokens,
+                output_tokens=output_tokens, cost_usd=cost_usd))
+
+    def llm_cost_since(self, since: datetime) -> float:
+        stmt = select(func.coalesce(func.sum(m.llm_usage.c.cost_usd), 0.0)).where(
+            m.llm_usage.c.ts >= since.astimezone(UTC))
+        with self.engine.connect() as cx:
+            return float(cx.execute(stmt).scalar_one())
+
+    def log_research_note(self, kind: str, period_start: date, period_end: date, model: str,
+                          content: dict) -> str:
+        note_id = uuid.uuid4().hex
+        with self.engine.begin() as cx:
+            cx.execute(insert(m.research_notes).values(
+                note_id=note_id, created_at=datetime.now(UTC), kind=kind, period_start=period_start,
+                period_end=period_end, model=model, content=jsonable(content)))
+        return note_id
+
+    def read_runs_between(self, start: date, end: date, data_split: str) -> pd.DataFrame:
+        stmt = select(m.runs).where(
+            m.runs.c.data_split == data_split, m.runs.c.status == "done",
+            m.runs.c.period_start >= start, m.runs.c.period_end <= end)
+        return self._frame(stmt.order_by(m.runs.c.period_start))
+
     def ping(self) -> bool:
         with self.engine.connect() as cx:
             cx.execute(select(1))

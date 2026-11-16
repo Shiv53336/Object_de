@@ -125,6 +125,33 @@ class ValidationConfig(StrictModel):
     max_holdout_evals: int = 2
 
 
+class ModelPrice(StrictModel):
+    input_per_mtok_usd: float = Field(ge=0)
+    output_per_mtok_usd: float = Field(ge=0)
+
+
+class ResearchConfig(StrictModel):
+    """AI research layer (PLAN 11). Advisory only: it never changes rules or trades."""
+
+    enabled: bool = False
+    provider: str = "bedrock"
+    region: str = "ap-south-1"
+    routine_model: str = ""
+    deep_model: str = ""
+    monthly_budget_usd: float = Field(default=15.0, gt=0)
+    max_output_tokens: int = Field(default=1500, gt=0)
+    prices: dict[str, ModelPrice] = {}
+
+    @model_validator(mode="after")
+    def _models_when_enabled(self) -> ResearchConfig:
+        if self.enabled and not (self.routine_model and self.deep_model):
+            raise ValueError("research.enabled needs routine_model and deep_model (Bedrock model ids)")
+        for m in (self.routine_model, self.deep_model):
+            if m and m not in self.prices:
+                raise ValueError(f"research.prices has no entry for model {m!r}")
+        return self
+
+
 class ExecutionConfig(StrictModel):
     mode: ExecutionMode = ExecutionMode.PAPER
 
@@ -147,6 +174,7 @@ class Settings(StrictModel):
     analytics: AnalyticsConfig
     validation: ValidationConfig
     execution: ExecutionConfig = ExecutionConfig()
+    research: ResearchConfig = ResearchConfig()
 
     @model_validator(mode="after")
     def _market_in_universe(self) -> Settings:

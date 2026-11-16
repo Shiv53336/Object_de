@@ -22,6 +22,11 @@ The owner asked for the build to be completed end to end, with design decisions 
 | D16 | 2026-11-17 | Daily Kite login through Telegram: the bot sends the link, the owner pastes back the redirect URL | Works from a phone with no public endpoint on the server | - |
 | D17 | 2026-11-17 | AWS: one t4g.medium in ap-south-1, default VPC, no inbound ports, SSM only, Elastic IP, encrypted EBS/S3, budget alert | Blueprint section 14 at the smallest sensible size | Load or reliability data |
 | D18 | 2026-11-17 | Scheduling with systemd timers on the instance (08:40 weekdays, backup 20:00) | Fewer moving parts than EventBridge plus SSM Run Command | - |
+| D19 | 2026-11-17 | Research layer off by default; enabled by filling Bedrock model ids and prices in settings.yaml | Model ids differ by account and region; no guessed ids in config | - |
+| D20 | 2026-11-17 | Hard monthly LLM budget (default $15) enforced in code before every call; every call's tokens and cost journalled | Cost cannot run away unattended | Actual spend |
+| D21 | 2026-11-17 | Weekly review proposals capped at two in code and written to files only | Keeps the trial count honest; the owner decides | - |
+| D22 | 2026-11-17 | Setup judge (T14) deferred until a news feed exists | With only price features the judge would repeat what the rules already know | After T16 |
+| D23 | 2026-11-17 | Market regime: rule-based label from the market symbol's session-start trend and volatility | Explainable, no lookahead; becomes a scoreboard dimension (`--by market_regime`) | After enough paper trades per regime |
 
 ## Findings worth knowing
 
