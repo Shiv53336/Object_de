@@ -26,6 +26,7 @@ from trademind.services.execution.kite_stream import KiteTickStream
 from trademind.services.execution.live_paper import LivePaperRunner
 from trademind.services.instrument_registry.registry import build_instruments
 from trademind.services.learning.metrics import scoreboard, to_markdown
+from trademind.services.learning.validation import format_report, promotion_report
 from trademind.services.market_data.source import DataSource, validate_bars
 from trademind.services.market_data.store import CsvSource, ParquetStore
 from trademind.services.market_data.synthetic import SyntheticSource
@@ -162,6 +163,44 @@ def backtest(
     typer.echo(f"run_id: {run_id}")
     trades = journal.read_trades(run_id)
     typer.echo(to_markdown(scoreboard(trades, cfg.settings.analytics.min_trades, by)))
+
+
+@app.command()
+def validate(
+    instance: Annotated[str, typer.Option(help="Strategy instance, e.g. orb_momentum@5minute")],
+    start: Annotated[str, typer.Option(help="First holdout session (>= validation.holdout_start)")],
+    end: Annotated[str, typer.Option(help="Last holdout session")],
+    source: Source = "synthetic",
+    seed: Annotated[int, typer.Option(help="Seed for synthetic data")] = 7,
+    csv_root: Annotated[Path | None, typer.Option(help="Root folder for --source csv")] = None,
+    config_dir: ConfigDir = None,
+) -> None:
+    """Out-of-sample check and promotion gate (PLAN 9.3). The only command that reads holdout data."""
+    cfg = load_config(config_dir)
+    v = cfg.settings.validation
+    journal = Journal(runtime_paths().database_url)
+    try:
+        (strat,) = build_instances(cfg.strategies, {instance})
+    except TrademindError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    used = journal.count_holdout_evals(instance, strat.version)
+    if used >= v.max_holdout_evals:
+        typer.echo(f"error: {instance} v{strat.version} has used its {v.max_holdout_evals} holdout "
+                   "evaluations. Change the strategy (new version) before looking again.", err=True)
+        raise typer.Exit(2)
+    research = journal.latest_run(instance, "research")
+    if research is None:
+        typer.echo(f"error: no finished research backtest includes {instance}; run `trademind backtest` "
+                   "first", err=True)
+        raise typer.Exit(2)
+    try:
+        holdout = run_backtest(cfg, _source(cfg, source, seed, csv_root), _date(start), _date(end), journal,
+                               data_split="holdout", only={instance}, source_name=source)
+    except (TrademindError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(format_report(promotion_report(journal, v, instance, strat.version, research, holdout)))
 
 
 @app.command()

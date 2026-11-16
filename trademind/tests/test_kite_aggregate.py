@@ -249,8 +249,9 @@ def test_outside_session_ignored_and_seed(cfg: AppConfig) -> None:
 
 
 def test_cli_login_and_download(monkeypatch, tmp_path) -> None:
-    import trademind.cli as cli
     from typer.testing import CliRunner
+
+    import trademind.cli as cli
 
     monkeypatch.setenv("KITE_API_KEY", "k")
     monkeypatch.setenv("KITE_API_SECRET", "s")
@@ -267,8 +268,9 @@ def test_cli_login_and_download(monkeypatch, tmp_path) -> None:
 
 
 def test_cli_download_requires_login(monkeypatch) -> None:
-    import trademind.cli as cli
     from typer.testing import CliRunner
+
+    import trademind.cli as cli
 
     monkeypatch.setenv("KITE_API_KEY", "k")
     r = CliRunner().invoke(cli.app, ["data", "download", "--start", "2025-09-01", "--end", "2025-09-02"])

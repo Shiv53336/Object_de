@@ -23,18 +23,24 @@ PREV = date(2025, 9, 1)
 
 
 def test_registry_builds_enabled_instances(cfg: AppConfig) -> None:
-    assert {"orb_momentum", "sweep_reversal"} <= set(available())
+    impl = set(available())
+    assert {"orb_momentum", "sweep_reversal", "failed_orb_fade", "overextension_fade",
+            "intraday_contraction", "first_half_hour_momentum"} <= impl
     ids = [s.instance_id for s in build_instances(cfg.strategies)]
-    assert ids == sorted(ids) and "orb_momentum@15minute" in ids
-    assert not any(i.startswith("failed_orb_fade") for i in ids)  # disabled, not implemented
+    assert ids == sorted(ids) and "orb_momentum@15minute" in ids and len(ids) == 11
 
 
-def test_registry_rejects_enabled_unknown_and_bad_filter(cfg: AppConfig) -> None:
+def test_registry_rejects_enabled_unknown_and_bad_filter() -> None:
+    mixed = StrategiesConfig.model_validate({"instances": [
+        {"id": "orb_momentum", "timeframe": "5minute"},
+        {"id": "nope", "timeframe": "5minute", "enabled": False},
+    ]})
+    assert [s.instance_id for s in build_instances(mixed)] == ["orb_momentum@5minute"]
     bad = StrategiesConfig.model_validate({"instances": [{"id": "nope", "timeframe": "5minute"}]})
     with pytest.raises(ConfigError, match="not implemented"):
         build_instances(bad)
     with pytest.raises(ConfigError, match="unknown or disabled"):
-        build_instances(cfg.strategies, only={"failed_orb_fade@5minute"})
+        build_instances(mixed, only={"nope@5minute"})
 
 
 def test_params_validated() -> None:

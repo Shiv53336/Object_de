@@ -253,6 +253,32 @@ class Journal:
         with self.engine.connect() as cx:
             return int(cx.execute(stmt).scalar_one())
 
+    def count_holdout_evals(self, instance_id: str, strategy_version: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(m.trials)
+            .where(
+                m.trials.c.instance_id == instance_id,
+                m.trials.c.strategy_version == strategy_version,
+                m.trials.c.data_split == "holdout",
+            )
+        )
+        with self.engine.connect() as cx:
+            return int(cx.execute(stmt).scalar_one())
+
+    def latest_run(self, instance_id: str, data_split: str) -> str | None:
+        """Most recent finished run of the given split that included the instance."""
+        stmt = (
+            select(m.runs.c.run_id, m.runs.c.instances)
+            .where(m.runs.c.data_split == data_split, m.runs.c.status == "done")
+            .order_by(m.runs.c.started_at.desc())
+        )
+        with self.engine.connect() as cx:
+            for run_id, instances in cx.execute(stmt):
+                if instance_id in (instances or []):
+                    return run_id
+        return None
+
     def ping(self) -> bool:
         with self.engine.connect() as cx:
             cx.execute(select(1))

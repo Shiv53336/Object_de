@@ -115,4 +115,4 @@ def test_cli_strategies_and_version() -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["version"]).output.strip() == "0.1.0"
     out = runner.invoke(app, ["strategies"]).output
-    assert "orb_momentum@5minute" in out and "(not implemented)" in out
+    assert "orb_momentum@5minute" in out and "(not implemented)" not in out

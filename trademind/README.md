@@ -8,12 +8,29 @@ A research-first trading platform for NSE (Nifty, Bank Nifty and liquid stocks).
 
 - 1-minute base data from synthetic, CSV or Parquet sources, resampled to any timeframe.
 - Features: VWAP, ATR, relative volume, opening range, 15- and 60-minute trend, gap, daily trend, volatility regime, stocks-in-play selection.
-- Two strategies: `orb_momentum` (opening range breakout) and `sweep_reversal` (trading the stop run at yesterday's high or low), each on 5 and 15 minutes.
+- Six intraday strategies, each on 5 and 15 minutes: `orb_momentum`, `failed_orb_fade`, `overextension_fade`, `intraday_contraction`, `first_half_hour_momentum`, and `sweep_reversal` (trading the stop run at yesterday's high or low).
+- Validation gate: `trademind validate` checks a strategy on held-out data with a bootstrap and a multiple-testing correction.
+- Real data from Zerodha Kite (read-only): daily login, instruments, history download.
+- Live paper trading from Kite ticks, proven to make the same decisions as the backtest, with Telegram alerts.
 - Paper broker with 1-minute fills, gaps, costs, slippage, MFE/MAE, and trap diagnostics: how often a stopped trade would have hit its target anyway.
 - Independent risk engine that fails closed, with a kill switch.
 - Journal in PostgreSQL (or SQLite locally), scoreboard by strategy and by any context tag, read-only API.
 
-What's next is in [`docs/TASKS.md`](docs/TASKS.md): four more strategies, the validation gate, Kite data, live paper trading, AI research, dashboard and AWS.
+What's next is in [`docs/TASKS.md`](docs/TASKS.md). Decisions taken during the build are in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+## Daily routine with real data
+
+```bash
+# once
+cp .env.example .env            # KITE_API_KEY, KITE_API_SECRET, optional TELEGRAM_*
+set -a; source .env; set +a
+trademind data download --start 2025-05-01 --end 2025-11-14   # history for features and backtests
+trademind backtest --start 2025-06-02 --end 2026-04-30 --source parquet
+
+# every trading day, before 09:15
+trademind login                  # paste the request_token; valid for today only
+trademind paper run              # runs until 15:30, then journals and sends a summary
+```
 
 ## Run it on your laptop (no Docker)
 
@@ -47,7 +64,12 @@ Ports bind to 127.0.0.1 only. On AWS, use a small instance in ap-south-1 (Mumbai
 
 | Command | What it does |
 |---|---|
-| `trademind backtest --start --end [--source synthetic\|parquet\|csv] [--instances a@5minute,...] [--by TAG]` | Research backtest, prints the scoreboard |
+| `trademind backtest --start --end [--source synthetic\|parquet\|csv\|kite] [--instances a@5minute,...] [--by TAG]` | Research backtest, prints the scoreboard |
+| `trademind validate --instance ID --start --end` | Out-of-sample check and promotion gate (holdout dates only) |
+| `trademind login` | Daily Kite login |
+| `trademind paper run` | Live paper trading for today (simulated fills) |
+| `trademind data download --start --end [--symbols a,b\|all]` | Kite 1-minute history into the Parquet store |
+| `trademind data instruments [--write-expiries]` | Refresh the instruments dump, check lot sizes, record expiries |
 | `trademind report --run-id ID [--by TAG]` | Scoreboard of a past run |
 | `trademind runs` | Recent runs |
 | `trademind strategies` | Implemented strategies and configured instances |
