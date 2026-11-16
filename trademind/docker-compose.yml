@@ -1,0 +1,51 @@
+# TRADEMIND paper environment. Same file runs on a laptop or a single EC2 instance.
+#   cp .env.example .env    # then set POSTGRES_PASSWORD and TRADEMIND_API_TOKEN
+#   docker compose up -d --build
+#   docker compose run --rm api trademind backtest --start 2025-06-02 --end 2025-12-31
+# Ports bind to 127.0.0.1 only. On AWS, reach them through SSM port forwarding.
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: trademind
+      POSTGRES_DB: trademind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trademind -d trademind"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      TRADEMIND_DATABASE_URL: postgresql+psycopg://trademind:${POSTGRES_PASSWORD}@db:5432/trademind
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Event bus for the live market-data pipeline (BLUEPRINT 9). Not used yet:
+  #   docker compose --profile live up -d
+  redis:
+    image: redis:7-alpine
+    profiles: ["live"]
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
