@@ -6,20 +6,24 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT = ROOT / "deploy" / "agent"
 WORKFLOW = ROOT.parent / ".github" / "workflows" / "trademind-agent.yml"
+# The agent's shell scripts run on the Linux server only.
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="server-side bash script")
+UTF8 = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
 
 def _settings() -> dict:
-    return json.loads((ROOT / ".claude" / "settings.json").read_text())
+    return json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
 
 
 def _agentlog(*args: str, stdin: str = "") -> str:
     out = subprocess.run([sys.executable, str(AGENT / "agentlog.py"), *args], input=stdin,
-                         capture_output=True, text=True, check=True)
+                         capture_output=True, text=True, check=True, encoding="utf-8")
     return out.stdout
 
 
@@ -27,6 +31,7 @@ def test_settings_deny_secrets_push_and_deploy():
     deny = set(_settings()["permissions"]["deny"])
     for rule in ["Read(./.env)", "Read(**/.env)", "Bash(git push *)", "Bash(git push)", "Bash(gh *)",
                  "Bash(docker *)", "Bash(*deploy-main.sh*)", "Bash(trademind validate *)",
+                 "Bash(trademind login *)", "Bash(trademind paper run*)",
                  "Edit(tests/test_no_order_code.py)"]:
         assert rule in deny
 
@@ -36,12 +41,15 @@ def test_settings_allow_nothing_broad_or_dangerous():
     assert perms.get("defaultMode") != "bypassPermissions"
     for rule in perms["allow"]:
         assert rule not in {"Bash", "Bash(*)", "Read", "Edit", "Write"}
-        for word in ("push", "gh ", "docker", "curl", "sudo", "deploy", "validate", ".env"):
+        banned = ("push", "gh ", "docker", "curl", "sudo", "deploy", "trademind validate", "paper run",
+                  ".env")
+        for word in banned:
             assert word not in rule, rule
 
 
 def test_sudo_rule_allows_only_two_fixed_scripts_without_arguments():
-    lines = [x for x in (AGENT / "sudoers").read_text().splitlines() if x and not x.startswith("#")]
+    text = (AGENT / "sudoers").read_text(encoding="utf-8")
+    lines = [x for x in text.splitlines() if x and not x.startswith("#")]
     assert lines == [
         'agent ALL=(ec2-user) NOPASSWD: /opt/trademind/trademind/deploy/agent/status.sh "", '
         '/opt/trademind/trademind/deploy/agent/deploy-main.sh ""'
@@ -49,7 +57,7 @@ def test_sudo_rule_allows_only_two_fixed_scripts_without_arguments():
 
 
 def test_workflow_keeps_github_token_away_from_claude():
-    wf = yaml.safe_load(WORKFLOW.read_text())
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     task = wf["jobs"]["task"]
     assert task["runs-on"] == ["self-hosted", "trademind"]
     assert wf["concurrency"]["group"] == "trademind-agent"
@@ -62,17 +70,18 @@ def test_workflow_keeps_github_token_away_from_claude():
 
 
 def test_run_task_unsets_credentials_before_claude():
-    script = (AGENT / "run-task.sh").read_text()
+    script = (AGENT / "run-task.sh").read_text(encoding="utf-8")
     unset_at, claude_at = script.index("unset GH_TOKEN"), script.index("claude -p")
     assert unset_at < claude_at
     for name in ("GITHUB_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_RUNTIME_TOKEN"):
         assert name in script[unset_at:claude_at]
 
 
+@posix_only
 def test_publish_refuses_branches_outside_agent(tmp_path):
     env = {**os.environ, "BRANCH": "main", "RUNNER_TEMP": str(tmp_path)}
     out = subprocess.run(["bash", str(AGENT / "publish.sh")], env=env, cwd=tmp_path,
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, encoding="utf-8")
     assert out.returncode == 1
     assert "refusing to push main" in out.stderr
 
@@ -102,7 +111,7 @@ def test_progress_shows_text_tools_and_errors():
 
 def test_summary_reports_result_cost_and_time(tmp_path):
     path = tmp_path / "t.jsonl"
-    path.write_text(TRANSCRIPT)
+    path.write_text(TRANSCRIPT, encoding="utf-8")
     text = _agentlog("summary", str(path))
     assert text.startswith("All 170 tests pass.")
     assert "status success · turns 4 · cost ~$0.50 · time 2m 05s" in text
@@ -110,7 +119,7 @@ def test_summary_reports_result_cost_and_time(tmp_path):
 
 def test_summary_without_result_keeps_last_message(tmp_path):
     path = tmp_path / "t.jsonl"
-    path.write_text("\n".join(TRANSCRIPT.splitlines()[:2]))
+    path.write_text("\n".join(TRANSCRIPT.splitlines()[:2]), encoding="utf-8")
     text = _agentlog("summary", str(path))
     assert text.startswith("Running the tests.")
     assert "stopped without a final result" in text

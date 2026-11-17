@@ -37,3 +37,5 @@ def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TRADEMIND_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("TRADEMIND_DATABASE_URL", raising=False)
     monkeypatch.setenv("TRADEMIND_LOG_JSON", "0")
+    # A developer's real .env (Kite keys) must never leak into tests run from trademind/.
+    monkeypatch.setenv("TRADEMIND_ENV_FILE", str(tmp_path / "no-such.env"))

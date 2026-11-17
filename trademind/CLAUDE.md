@@ -47,7 +47,11 @@ pytest -q
 ruff check .
 trademind strategies
 trademind backtest --start 2025-05-01 --end 2026-04-30 --by time_bucket
+trademind preflight --for backtest --no-online
+trademind paper check --day YYYY-MM-DD
 ```
+
+On Windows, run from `trademind\` with the venv active, or call `.venv\Scripts\trademind.exe`. Text files are read and written as UTF-8 with explicit `encoding=`; `tests/test_windows_safety.py` enforces it.
 
 ## When you finish a card, report
 

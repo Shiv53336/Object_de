@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import date
+import webbrowser
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -25,18 +26,28 @@ from trademind.services.broker_gateway.kite import (
 )
 from trademind.services.execution.kite_stream import KiteTickStream
 from trademind.services.execution.live_paper import LivePaperRunner
+from trademind.services.execution.paper_check import (
+    OverlaySource,
+    compare_bars,
+    compare_trades,
+    render,
+    replay_day,
+)
 from trademind.services.instrument_registry.registry import build_instruments
 from trademind.services.learning.metrics import scoreboard, to_markdown
 from trademind.services.learning.validation import format_report, promotion_report
 from trademind.services.market_data.source import DataSource, validate_bars
 from trademind.services.market_data.store import CsvSource, ParquetStore
 from trademind.services.market_data.synthetic import SyntheticSource
-from trademind.services.notify.telegram import Notifier
+from trademind.services.notify.telegram import TOKEN_RE, Notifier
+from trademind.services.ops import preflight as pf
 from trademind.services.strategy_engine.registry import available, build_instances
 from trademind.shared.clock import IST, at
 from trademind.shared.config import AppConfig, load_config, runtime_paths
+from trademind.shared.dotenv import load_env_file
 from trademind.shared.exceptions import TrademindError
 from trademind.shared.logging import setup_logging
+from trademind.shared.power import keep_awake, on_battery
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="TRADEMIND (paper trading only)")
 data_app = typer.Typer(no_args_is_help=True, help="Market data tools")
@@ -67,6 +78,14 @@ def _kite_env() -> tuple[str, str]:
         typer.echo("error: set KITE_API_KEY (and KITE_API_SECRET) in .env", err=True)
         raise typer.Exit(2)
     return key, secret
+
+
+def _request_token(text: str) -> str:
+    m = TOKEN_RE.search(text.strip())
+    if not m:
+        typer.echo("error: no request_token found in what you pasted", err=True)
+        raise typer.Exit(2)
+    return m.group(1) or m.group(2)
 
 
 def _kite(today: date) -> tuple[str, str, KiteGateway, InstrumentDirectory]:
@@ -108,6 +127,7 @@ def _source(cfg: AppConfig, name: str, seed: int, csv_root: Path | None) -> Data
 
 @app.callback()
 def _main(log_level: Annotated[str, typer.Option(help="Log level")] = "WARNING") -> None:
+    load_env_file(Path(os.environ.get("TRADEMIND_ENV_FILE", ".env")))
     setup_logging(log_level, json_output=os.environ.get("TRADEMIND_LOG_JSON", "1") == "1")
 
 
@@ -261,9 +281,11 @@ def login(
             typer.echo("error: no login received", err=True)
             raise typer.Exit(3)
     else:
-        typer.echo(f"1. Open: {gateway.login_url()}")
-        typer.echo("2. After login, copy request_token=... from the redirect URL.")
-        request_token = typer.prompt("request_token").strip()
+        url = gateway.login_url()
+        typer.echo(f"1. Log in at: {url}")
+        typer.echo("2. Paste the whole address you land on (it contains request_token=...).")
+        webbrowser.open(url)
+        request_token = _request_token(typer.prompt("redirect URL or request_token"))
     access = gateway.create_session(request_token, secret)
     store.save(access, _now().date())
     user = KiteGateway(make_kite_client(key, access)).profile().get("user_name", "?")
@@ -340,7 +362,8 @@ def data_instruments(
         exp = directory.expiries(today)
         merged = {k: sorted({*cfg.expiries.get(k, []), *v}) for k, v in exp.items()}
         path = cfg.config_dir / "expiries.yaml"
-        path.write_text(yaml.safe_dump({k: [d.isoformat() for d in v] for k, v in merged.items()}))
+        dump = yaml.safe_dump({k: [d.isoformat() for d in v] for k, v in merged.items()})
+        path.write_text(dump, encoding="utf-8")
         typer.echo(f"wrote {path}")
 
 
@@ -374,16 +397,142 @@ def paper_run(
     stream = KiteTickStream(key, token, {directory.token(sym): sym for sym in syms}, runner.on_ticks, _now)
     stream.start()
     typer.echo(f"paper run {runner.run_id} started for {len(syms)} symbols; Ctrl+C to stop")
-    try:
-        while not runner.finished:
-            runner.poll(_now())
-            time.sleep(1)
-    except KeyboardInterrupt:
-        typer.echo("stopping early: closing open paper positions at the last bar")
-        runner.finish()
-    finally:
-        stream.stop()
+    if on_battery():
+        typer.echo("warning: on battery power; plug the laptop in for the session", err=True)
+    with keep_awake() as awake:
+        if awake:
+            typer.echo("Windows sleep is blocked until the run ends (the lid must stay open)")
+        try:
+            while not runner.finished:
+                runner.poll(_now())
+                time.sleep(1)
+        except KeyboardInterrupt:
+            typer.echo("stopping early: closing open paper positions at the last bar")
+            runner.finish()
+        finally:
+            stream.stop()
     typer.echo(runner.summary(runner.result) if runner.result else "no result")
+
+
+@app.command()
+def preflight(
+    purpose: Annotated[str, typer.Option("--for", help="paper | backtest")] = "paper",
+    online: Annotated[bool, typer.Option(help="Also check the Kite session and clock online")] = True,
+    config_dir: ConfigDir = None,
+) -> None:
+    """Readiness check for today: config, keys, Kite login, history, journal, disk, power, clock."""
+    if purpose not in {"paper", "backtest"}:
+        raise typer.BadParameter("--for must be paper or backtest")
+    paths = runtime_paths()
+    now = _now()
+    checks = [pf.check_python()]
+    try:
+        cfg = load_config(config_dir)
+    except Exception as exc:  # the config error message is the useful part
+        checks.append(pf.Check("config", pf.FAIL, f"{type(exc).__name__}: {exc}"))
+        text, code = pf.summarize(checks)
+        typer.echo(text)
+        raise typer.Exit(code) from exc
+    checks.append(pf.check_config(cfg))
+    checks += pf.check_env(os.environ, purpose)
+    checks.append(pf.check_token(paths, now.date(), purpose))
+    checks += pf.check_history(cfg, ParquetStore(paths.bars_dir), now.date(), purpose)
+    checks.append(pf.check_journal(Journal(paths.database_url).ping))
+    checks.append(pf.check_disk(paths.data_dir))
+    if purpose == "paper":
+        checks.append(pf.check_session_time(cfg, now))
+        checks.append(pf.check_timezone(datetime.now().astimezone().utcoffset()))
+        power = pf.check_power(on_battery())
+        if power:
+            checks.append(power)
+    if online:
+        checks += _online_checks(now)
+    text, code = pf.summarize(checks)
+    typer.echo(text)
+    raise typer.Exit(code)
+
+
+def _online_checks(now: pd.Timestamp) -> list[pf.Check]:
+    import httpx
+
+    out = []
+    try:
+        header = httpx.head("https://api.kite.trade", timeout=5).headers.get("date")
+    except httpx.HTTPError:
+        header = None
+    out.append(pf.check_clock(header, _now()))
+    key = os.environ.get("KITE_API_KEY", "")
+    token = TokenStore(runtime_paths().data_dir / "kite_token.json").load(now.date())
+    if key and token:
+        try:
+            user = KiteGateway(make_kite_client(key, token)).profile().get("user_name", "?")
+            out.append(pf.Check("kite api", pf.OK, f"session works (user {user})"))
+        except Exception as exc:  # any Kite error means today's session is unusable
+            out.append(pf.Check("kite api", pf.FAIL, f"session rejected: {exc}; run `trademind login`"))
+    return out
+
+
+@paper_app.command("check")
+def paper_check(
+    day: Annotated[str | None, typer.Option(help="Paper day to check, YYYY-MM-DD (default: today)")] = None,
+    kite: Annotated[bool, typer.Option(help="Fetch Kite candles to compare bars (needs a login)")] = True,
+    config_dir: ConfigDir = None,
+) -> None:
+    """Compare a live paper day with backtest replays of the same day. Writes data/checks/DAY.md."""
+    cfg = load_config(config_dir)
+    s = cfg.settings
+    d = _date(day) if day else _now().date()
+    paths = runtime_paths()
+    journal = Journal(paths.database_url)
+    runs = journal.read_runs_between(d, d, "live")
+    if runs.empty:
+        typer.echo(f"error: no finished live paper run on {d}", err=True)
+        raise typer.Exit(2)
+    run = runs.iloc[-1]
+    run_id, instance_ids = str(run["run_id"]), list(run["instances"] or [])
+    live_trades = journal.read_trades(run_id)
+    store = ParquetStore(paths.bars_dir)
+    notes: list[str] = []
+
+    official: dict[str, pd.DataFrame] = {}
+    instruments = None
+    token = TokenStore(paths.data_dir / "kite_token.json").load(_now().date())
+    if kite and token:
+        _, _, gateway, directory = _kite(_now().date())
+        instruments = _kite_instruments(cfg, directory, _now().date())
+        src = KiteSource(gateway, directory)
+        official = {sym: src.get_bars(sym, s.session.base_interval, d, d) for sym in build_instruments(s)}
+    elif kite:
+        notes.append("No Kite session today, so bars were not compared: run `trademind login` first.")
+    if instruments is None:
+        notes.append("Lot sizes come from config; if Kite's differ, quantities and P&L will differ too.")
+
+    out_dir = paths.data_dir / "checks" / d.isoformat()
+    bar_diffs = []
+    for sym, inst in (instruments or build_instruments(s)).items():
+        live = store.read(sym, s.session.base_interval, d, d)
+        if not live.empty:
+            (out_dir / "live_bars").mkdir(parents=True, exist_ok=True)
+            live.to_parquet(out_dir / "live_bars" / f"{sym.replace(' ', '_')}.parquet", index=False)
+        if sym in official and not official[sym].empty and not live.empty:
+            bar_diffs.append(compare_bars(sym, live, official[sym], inst.tick_size))
+
+    try:
+        on_live = compare_trades(live_trades, replay_day(cfg, store, d, instance_ids, instruments))
+        on_official = None
+        if official:
+            overlay = OverlaySource(store, d, {k: v for k, v in official.items() if not v.empty})
+            on_official = compare_trades(live_trades, replay_day(cfg, overlay, d, instance_ids, instruments))
+    except TrademindError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    report = render(d, run_id, bar_diffs, on_live, on_official, notes)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (paths.data_dir / "checks" / f"{d.isoformat()}.md").write_text(report, encoding="utf-8")
+    typer.echo(report)
+    typer.echo(f"saved: {paths.data_dir / 'checks' / (d.isoformat() + '.md')}")
+    raise typer.Exit(0 if on_live.exact else 1)
 
 
 @research_app.command("postmortem")
@@ -437,7 +586,7 @@ def research_weekly(
 
 @data_app.command("validate")
 def data_validate(
-    symbol: Annotated[str, typer.Option()],
+    symbol: Annotated[str, typer.Option(help="Symbol, or 'all' for the universe")],
     start: Annotated[str, typer.Option()],
     end: Annotated[str, typer.Option()],
     source: Source = "parquet",
@@ -445,16 +594,23 @@ def data_validate(
     csv_root: Annotated[Path | None, typer.Option()] = None,
     config_dir: ConfigDir = None,
 ) -> None:
-    """Check stored bars against the bar contract."""
+    """Check stored bars against the bar contract. `--symbol all` checks the whole universe."""
     cfg = load_config(config_dir)
     s = cfg.settings
-    df = _source(cfg, source, seed, csv_root).get_bars(
-        symbol, s.session.base_interval, _date(start), _date(end)
-    )
-    problems = validate_bars(df, s.session, s.session.base_minutes)
-    typer.echo(f"{len(df)} bars")
-    typer.echo("\n".join(problems) if problems else "OK")
-    if any(not p.startswith("info:") for p in problems):
+    src = _source(cfg, source, seed, csv_root)
+    symbols = list(build_instruments(s)) if symbol == "all" else [symbol]
+    failed = []
+    for sym in symbols:
+        df = src.get_bars(sym, s.session.base_interval, _date(start), _date(end))
+        problems = validate_bars(df, s.session, s.session.base_minutes)
+        typer.echo(f"{sym}: {len(df)} bars")
+        typer.echo("  " + "\n  ".join(problems) if problems else "  OK")
+        if df.empty or any(not p.startswith("info:") for p in problems):
+            failed.append(sym)
+    if len(symbols) > 1:
+        typer.echo(f"\n{len(symbols) - len(failed)} of {len(symbols)} symbols clean"
+                   + (f"; check: {', '.join(failed)}" if failed else ""))
+    if failed:
         raise typer.Exit(1)
 
 

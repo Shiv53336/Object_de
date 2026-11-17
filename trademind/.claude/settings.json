@@ -11,6 +11,13 @@
       "Bash(trademind backtest *)",
       "Bash(trademind report *)",
       "Bash(trademind runs *)",
+      "Bash(trademind preflight)",
+      "Bash(trademind preflight *)",
+      "Bash(trademind paper check)",
+      "Bash(trademind paper check *)",
+      "Bash(trademind data instruments)",
+      "Bash(trademind data validate *)",
+      "Bash(trademind data download *)",
       "Bash(pip install -e *)",
       "Bash(git status)",
       "Bash(git status *)",
@@ -47,8 +54,7 @@
       "Bash(*deploy-main.sh*)",
       "Bash(trademind validate *)",
       "Bash(trademind login *)",
-      "Bash(trademind data download *)",
-      "Bash(trademind paper *)"
+      "Bash(trademind paper run*)"
     ]
   }
 }

@@ -250,7 +250,7 @@ class AppConfig:
 
 
 def _read_yaml(path: Path) -> Any:
-    with path.open() as fh:
+    with path.open(encoding="utf-8") as fh:
         return yaml.safe_load(fh) or {}
 
 
@@ -274,7 +274,8 @@ def load_config(config_dir: str | Path | None = None) -> AppConfig:
 def config_hash(config_dir: str | Path) -> str:
     h = hashlib.sha256()
     for name in CONFIG_FILES:
-        h.update((Path(config_dir) / name).read_bytes())
+        # Line endings normalised, so a Windows checkout hashes like the server's.
+        h.update((Path(config_dir) / name).read_bytes().replace(b"\r\n", b"\n"))
     return h.hexdigest()
 
 
@@ -287,5 +288,5 @@ class RuntimePaths:
 
 def runtime_paths() -> RuntimePaths:
     data_dir = Path(os.environ.get("TRADEMIND_DATA_DIR", "data"))
-    url = os.environ.get("TRADEMIND_DATABASE_URL") or f"sqlite:///{data_dir / 'journal.sqlite'}"
+    url = os.environ.get("TRADEMIND_DATABASE_URL") or f"sqlite:///{(data_dir / 'journal.sqlite').as_posix()}"
     return RuntimePaths(data_dir=data_dir, bars_dir=data_dir / "bars", database_url=url)

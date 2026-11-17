@@ -8,13 +8,18 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Linux is the server; Windows is the owner's laptop for local testing (docs/TESTING.md).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: trademind
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
