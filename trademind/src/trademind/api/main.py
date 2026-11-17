@@ -29,7 +29,7 @@ def create_app(database_url: str | None = None, api_token: str | None = None) ->
         if not authorization or not hmac.compare_digest(authorization, expected):
             raise HTTPException(401, "invalid or missing bearer token")
 
-    dashboard_html = (Path(__file__).parent / "static" / "dashboard.html").read_text()
+    dashboard_html = (Path(__file__).parent / "static" / "dashboard.html").read_text(encoding="utf-8")
 
     @app.get("/", include_in_schema=False)
     def root() -> RedirectResponse:

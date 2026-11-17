@@ -80,7 +80,7 @@ def daily_postmortem(cfg: AppConfig, journal: Journal, llm: BudgetedLLM, run_id:
     day = run["period_start"]
     journal.log_research_note("postmortem", day, day, cfg.settings.research.routine_model, note)
     reports_dir.mkdir(parents=True, exist_ok=True)
-    (reports_dir / f"{day}-postmortem.md").write_text(render(f"Post-mortem {day}", note))
+    (reports_dir / f"{day}-postmortem.md").write_text(render(f"Post-mortem {day}", note), encoding="utf-8")
     return note
 
 
@@ -113,7 +113,8 @@ def weekly_review(cfg: AppConfig, journal: Journal, llm: BudgetedLLM, start: dat
     (out_dir / f"{start}_{end}-weekly.md").write_text(
         render(f"Weekly review {start} to {end}", note)
         + "\n\n_Proposals are not applied. To adopt one: write it as a spec change in "
-          "docs/STRATEGIES.md with a new version, backtest it, and run `trademind validate`._\n"
+          "docs/STRATEGIES.md with a new version, backtest it, and run `trademind validate`._\n",
+        encoding="utf-8",
     )
     return note
 

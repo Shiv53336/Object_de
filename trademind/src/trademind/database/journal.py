@@ -53,7 +53,8 @@ def to_utc(ts: pd.Timestamp | datetime | None) -> datetime | None:
 def git_sha() -> str:
     try:
         out = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=True
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, encoding="utf-8", timeout=5,
+            check=True,
         )
         return out.stdout.strip() or "unknown"
     except Exception:

@@ -1,0 +1,6 @@
+# Same bytes on Windows and Linux: config hashes, shell scripts and parquet files must not be rewritten.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.parquet binary
+*.sqlite binary
+*.png binary

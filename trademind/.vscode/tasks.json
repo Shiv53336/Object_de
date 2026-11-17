@@ -1,0 +1,261 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "TM: tests",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "pytest",
+        "-q"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "TM: lint",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-m",
+        "ruff",
+        "check",
+        "."
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: preflight",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "preflight",
+        "--for",
+        "paper"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: Kite login",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "login"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: download 12 months of data",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "data",
+        "download",
+        "--start",
+        "${input:dataStart}",
+        "--end",
+        "${input:dataEnd}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: validate data",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "data",
+        "validate",
+        "--symbol",
+        "${input:symbol}",
+        "--start",
+        "${input:dataStart}",
+        "--end",
+        "${input:dataEnd}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: research backtest (real data)",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "backtest",
+        "--source",
+        "parquet",
+        "--start",
+        "2025-05-01",
+        "--end",
+        "2026-04-30",
+        "--by",
+        "time_bucket"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: paper run (today)",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "paper",
+        "run"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: paper check (today)",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "paper",
+        "check"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: paper check (pick a day)",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "paper",
+        "check",
+        "--day",
+        "${input:day}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: recent runs",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\trademind.exe",
+      "args": [
+        "runs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "TM: daily routine (login, preflight, run, check)",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\deploy\\windows\\daily.ps1"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "dataStart",
+      "type": "promptString",
+      "description": "First date (YYYY-MM-DD)",
+      "default": "2025-05-01"
+    },
+    {
+      "id": "dataEnd",
+      "type": "promptString",
+      "description": "Last date (YYYY-MM-DD), usually yesterday"
+    },
+    {
+      "id": "symbol",
+      "type": "promptString",
+      "description": "Symbol, or all",
+      "default": "all"
+    },
+    {
+      "id": "day",
+      "type": "promptString",
+      "description": "Paper day to check (YYYY-MM-DD)"
+    }
+  ]
+}

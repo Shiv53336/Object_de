@@ -117,7 +117,7 @@ def test_weekly_review_caps_hypotheses(small_cfg: AppConfig, tmp_path) -> None:
     note = weekly_review(c, j, BudgetedLLM(FakeLLM(WEEKLY), c.settings.research, j),
                          date(2025, 9, 1), date(2025, 9, 5), tmp_path / "research")
     assert len(note["hypotheses"]) == 2
-    text = (tmp_path / "research" / "2025-09-01_2025-09-05-weekly.md").read_text()
+    text = (tmp_path / "research" / "2025-09-01_2025-09-05-weekly.md").read_text(encoding="utf-8")
     assert "Proposals are not applied" in text
 
 

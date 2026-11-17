@@ -29,6 +29,8 @@ The owner asked for the build to be completed end to end, with design decisions 
 | D23 | 2026-11-17 | Market regime: rule-based label from the market symbol's session-start trend and volatility | Explainable, no lookahead; becomes a scoreboard dimension (`--by market_regime`) | After enough paper trades per regime |
 | D24 | 2026-11-17 | Dashboard as one static page served by the API, not a separate Next.js app | No build chain or extra service; the token stays in the browser session; reached through the SSM tunnel | If several people need access |
 | D25 | 2026-11-17 | Ops agent: Claude Code headless on Bedrock, started by a GitHub Actions workflow on a self-hosted runner (separate `agent` user, OIDC Bedrock-only role, no push rights) | Remote Control needs a claude.ai login, not Bedrock; Actions gives a queue, logs and a PR review gate with no inbound ports | If a second machine is added for the agent |
+| D27 | 2026-11-17 | Paper-day replays (`trademind paper check`) may read a holdout-period day only when that day already has a finished live paper run; replays use a throwaway journal and are never stored or logged as trials | The live run already saw that day, so a same-day replay adds no selection information; it verifies parity and data quality | Never |
+| D28 | 2026-11-17 | Local-first testing on the owner's Windows laptop (`docs/TESTING.md`) before the server; CI runs on Linux and Windows | The owner wants thorough initial testing and will run the laptop on market days; Windows CI keeps the laptop path from rotting | When testing moves to the server |
 
 ## Findings worth knowing
 

@@ -35,41 +35,45 @@ def test_default_config_loads(cfg: AppConfig) -> None:
 
 def test_unknown_key_rejected(tmp_path: Path) -> None:
     d = _copy_config(tmp_path)
-    (d / "settings.yaml").write_text((d / "settings.yaml").read_text() + "\nsurprise: 1\n")
+    settings = d / "settings.yaml"
+    settings.write_text(settings.read_text(encoding="utf-8") + "\nsurprise: 1\n", encoding="utf-8")
     with pytest.raises(Exception, match="surprise"):
         load_config(d)
 
 
 def test_unquoted_time_rejected(tmp_path: Path) -> None:
     d = _copy_config(tmp_path)
-    text = (d / "settings.yaml").read_text().replace('open: "09:15"', "open: 9:15")
-    (d / "settings.yaml").write_text(text)
+    text = (d / "settings.yaml").read_text(encoding="utf-8").replace('open: "09:15"', "open: 9:15")
+    (d / "settings.yaml").write_text(text, encoding="utf-8")
     with pytest.raises(Exception, match="quoted"):
         load_config(d)
 
 
 def test_session_order_enforced(tmp_path: Path) -> None:
     d = _copy_config(tmp_path)
-    text = (d / "settings.yaml").read_text().replace('squareoff_time: "15:20"', 'squareoff_time: "14:00"')
-    (d / "settings.yaml").write_text(text)
+    text = (d / "settings.yaml").read_text(encoding="utf-8")
+    text = text.replace('squareoff_time: "15:20"', 'squareoff_time: "14:00"')
+    (d / "settings.yaml").write_text(text, encoding="utf-8")
     with pytest.raises(Exception, match="last_entry_time < squareoff_time"):
         load_config(d)
 
 
 def test_only_paper_mode_accepted(tmp_path: Path) -> None:
     d = _copy_config(tmp_path)
-    text = (d / "settings.yaml").read_text().replace("mode: PAPER", "mode: APPROVED_LIVE")
-    (d / "settings.yaml").write_text(text)
+    text = (d / "settings.yaml").read_text(encoding="utf-8").replace("mode: PAPER", "mode: APPROVED_LIVE")
+    (d / "settings.yaml").write_text(text, encoding="utf-8")
     with pytest.raises(Exception, match="only PAPER"):
         load_config(d)
 
 
 def test_timeframe_must_be_multiple_of_base(tmp_path: Path) -> None:
     d = _copy_config(tmp_path)
-    text = (d / "settings.yaml").read_text().replace("base_interval: 1minute", "base_interval: 5minute")
+    text = (d / "settings.yaml").read_text(encoding="utf-8")
+    text = text.replace("base_interval: 1minute", "base_interval: 5minute")
     text = text.replace("or_minutes: 15", "or_minutes: 15")
-    (d / "settings.yaml").write_text(text)
-    (d / "strategies.yaml").write_text("instances:\n  - {id: orb_momentum, timeframe: 3minute}\n")
+    (d / "settings.yaml").write_text(text, encoding="utf-8")
+    instances = "instances:\n  - {id: orb_momentum, timeframe: 3minute}\n"
+    (d / "strategies.yaml").write_text(instances, encoding="utf-8")
     with pytest.raises(ConfigError, match="multiple of the base"):
         load_config(d)
 
@@ -78,13 +82,13 @@ def test_config_hash_changes_with_content(tmp_path: Path) -> None:
     d = _copy_config(tmp_path)
     h1 = config_hash(d)
     assert h1 == config_hash(d)
-    (d / "costs.yaml").write_text((d / "costs.yaml").read_text() + "\n")
+    (d / "costs.yaml").write_text((d / "costs.yaml").read_text(encoding="utf-8") + "\n", encoding="utf-8")
     assert config_hash(d) != h1
 
 
 def test_expiries_parsed(tmp_path: Path) -> None:
     d = _copy_config(tmp_path)
-    (d / "expiries.yaml").write_text('"NIFTY 50": ["2025-09-30", "2025-09-02"]\n')
+    (d / "expiries.yaml").write_text('"NIFTY 50": ["2025-09-30", "2025-09-02"]\n', encoding="utf-8")
     assert load_config(d).expiries["NIFTY 50"] == [date(2025, 9, 2), date(2025, 9, 30)]
 
 

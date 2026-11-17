@@ -19,6 +19,7 @@ from trademind.services.strategy_engine.base import Strategy
 from trademind.services.strategy_engine.registry import build_instances
 from trademind.shared.config import AppConfig, config_hash
 from trademind.shared.exceptions import ConfigError, DataError, HoldoutAccessError
+from trademind.shared.models import Instrument
 
 log = logging.getLogger(__name__)
 
@@ -48,14 +49,16 @@ def run_backtest(
     strategies: list[Strategy] | None = None,
     source_name: str = "unknown",
     progress: Callable[[date, int, int], None] | None = None,
+    instruments: dict[str, Instrument] | None = None,
 ) -> str:
-    """Returns the run id. `strategies` overrides the configured instances (tests, research)."""
+    """Returns the run id. `strategies` overrides the configured instances (tests, research).
+    `instruments` overrides config lot and tick sizes (a paper-day replay uses the live run's)."""
     check_split(cfg, start, end, data_split)
     instances = strategies if strategies is not None else build_instances(cfg.strategies, only)
     if not instances:
         raise ConfigError("no enabled strategy instances")
     s = cfg.settings
-    instruments = build_instruments(s)
+    instruments = instruments or build_instruments(s)
     timeframes = {x.minutes for x in instances}
     load_start = start - timedelta(days=s.backtest.warmup_days)
 

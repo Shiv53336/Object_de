@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -158,7 +159,8 @@ def test_token_store_expires_daily(tmp_path) -> None:
     store.save("abc", date(2025, 9, 2))
     assert store.load(date(2025, 9, 2)) == "abc"
     assert store.load(date(2025, 9, 3)) is None
-    assert oct(store.path.stat().st_mode)[-3:] == "600"
+    if sys.platform != "win32":  # Windows has no owner-only permission bits; the file sits in data/
+        assert oct(store.path.stat().st_mode)[-3:] == "600"
 
 
 def test_session_exchange() -> None:
@@ -258,8 +260,11 @@ def test_cli_login_and_download(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(cli, "make_kite_client", lambda key, token=None: ReadOnlyClient(FakeKite()))
     monkeypatch.setattr(FakeKite, "profile", lambda self: {"user_name": "Test"}, raising=False)
     monkeypatch.setattr(cli, "_now", lambda: pd.Timestamp("2025-11-17 08:30", tz=IST))
+    opened: list[str] = []
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
     runner = CliRunner()
-    r = runner.invoke(cli.app, ["login"], input="rt123\n")
+    r = runner.invoke(cli.app, ["login"], input="http://127.0.0.1/?request_token=rt123&status=success\n")
+    assert opened and "kite" in opened[0]
     assert r.exit_code == 0 and "Logged in as Test" in r.output
     r = runner.invoke(cli.app, ["data", "download", "--start", "2025-09-01", "--end", "2025-09-05",
                                 "--symbols", "RELIANCE"])

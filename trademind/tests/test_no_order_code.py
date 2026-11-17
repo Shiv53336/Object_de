@@ -11,7 +11,7 @@ FORBIDDEN = re.compile(r"place_order|modify_order|cancel_order|place_gtt|/orders
 
 
 def test_no_real_order_code() -> None:
-    offenders = [p for p in SRC.rglob("*.py") if FORBIDDEN.search(p.read_text())]
+    offenders = [p for p in SRC.rglob("*.py") if FORBIDDEN.search(p.read_text(encoding="utf-8"))]
     assert offenders == [], f"order-placement code found in {offenders}"
 
 

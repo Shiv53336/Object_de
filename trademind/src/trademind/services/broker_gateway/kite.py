@@ -92,13 +92,14 @@ class TokenStore:
 
     def save(self, access_token: str, day: date) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"access_token": access_token, "date": day.isoformat()}))
+        payload = json.dumps({"access_token": access_token, "date": day.isoformat()})
+        self.path.write_text(payload, encoding="utf-8")
         self.path.chmod(0o600)
 
     def load(self, today: date) -> str | None:
         if not self.path.exists():
             return None
-        data = json.loads(self.path.read_text())
+        data = json.loads(self.path.read_text(encoding="utf-8"))
         if data.get("date") != today.isoformat():
             return None
         return data.get("access_token") or None
