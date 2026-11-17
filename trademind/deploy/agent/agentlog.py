@@ -3,6 +3,9 @@
   claude -p ... --output-format stream-json --verbose | python3 agentlog.py progress
   python3 agentlog.py summary transcript.jsonl > result.md
   some-command | python3 agentlog.py notice "Title" [--quiet]
+  python3 agentlog.py limit-hit transcript.jsonl [stderr.txt]    # exit 0 if a usage limit stopped the run
+  python3 agentlog.py spend-month ledger.csv                     # this month's Bedrock spend in USD
+  python3 agentlog.py spend-add ledger.csv transcript.jsonl FALLBACK_USD
 
 Annotations can be read through the GitHub REST API, so dispatch.sh (and Claude in chat) can fetch a
 run's result without downloading logs. Runs on the system python3 too, so it uses only the stdlib.
@@ -11,10 +14,15 @@ run's result without downloading logs. Runs on the system python3 too, so it use
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from collections.abc import Iterable, Iterator
+from datetime import datetime, timezone
 
 NOTICE_LIMIT = 3900
+UTC_TZ = timezone.utc  # noqa: UP017 (datetime.UTC needs 3.11; this also runs on the system python3.9)
+LIMIT_PATTERN = re.compile(r"usage limit|hit your limit|limit reached|limit will reset|rate.?limit", re.I)
 
 
 def events(lines: Iterable[str]) -> Iterator[dict]:
@@ -109,6 +117,60 @@ def notice(title: str, text: str) -> str:
     return f"::notice title={safe_title}::{escape(text)}"
 
 
+def limit_hit(evts: Iterable[dict], stderr_text: str = "") -> bool:
+    """True when a run stopped because the Claude subscription's usage limit was reached."""
+    result = None
+    for e in evts:
+        if e.get("type") == "result":
+            result = e
+    if result is not None and result.get("subtype") == "success" and not result.get("is_error"):
+        return False
+    text = stderr_text
+    if result is not None:
+        text += " " + str(result.get("result") or "") + " " + json.dumps(result.get("errors") or "")
+    return bool(LIMIT_PATTERN.search(text))
+
+
+def run_cost(evts: Iterable[dict]) -> float | None:
+    for e in evts:
+        if e.get("type") == "result" and isinstance(e.get("total_cost_usd"), (int, float)):
+            return float(e["total_cost_usd"])
+    return None
+
+
+def _month(now: datetime | None = None) -> str:
+    return (now or datetime.now(UTC_TZ)).strftime("%Y-%m")
+
+
+def spend_month(ledger: str, now: datetime | None = None) -> float:
+    """Sum of this UTC month's rows in a ledger of `ISO-timestamp,usd` lines."""
+    if not os.path.exists(ledger):
+        return 0.0
+    month, total = _month(now), 0.0
+    with open(ledger, encoding="utf-8") as fh:
+        for row in fh:
+            stamp, _, usd = row.strip().partition(",")
+            if stamp.startswith(month):
+                try:
+                    total += float(usd)
+                except ValueError:
+                    continue
+    return round(total, 4)
+
+
+def spend_add(ledger: str, cost: float, now: datetime | None = None) -> None:
+    stamp = (now or datetime.now(UTC_TZ)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with open(ledger, "a", encoding="utf-8") as fh:
+        fh.write(f"{stamp},{cost:.4f}\n")
+
+
+def _read_events(path: str) -> list[dict]:
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        return list(events(fh))
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__, file=sys.stderr)
@@ -125,6 +187,17 @@ def main(argv: list[str]) -> int:
         if "--quiet" not in rest:
             sys.stdout.write(text)
         print(notice(rest[0] if rest else "Agent", text))
+    elif cmd == "limit-hit":
+        err = ""
+        if len(rest) > 1 and os.path.exists(rest[1]):
+            with open(rest[1], encoding="utf-8", errors="replace") as fh:
+                err = fh.read()
+        return 0 if limit_hit(_read_events(rest[0]), err) else 1
+    elif cmd == "spend-month":
+        print(f"{spend_month(rest[0]):.2f}")
+    elif cmd == "spend-add":
+        cost = run_cost(_read_events(rest[1]))
+        spend_add(rest[0], cost if cost is not None else float(rest[2]))
     else:
         print(f"unknown command: {cmd}", file=sys.stderr)
         return 2

@@ -18,12 +18,12 @@ on:
         type: string
         required: false
       model:
-        description: "Bedrock model"
+        description: "Model (subscription alias; mapped to the Bedrock id for the fallback)"
         type: choice
         options: [sonnet, opus]
         default: sonnet
       budget_usd:
-        description: "Spend cap for this run in USD (Claude Code's own estimate)"
+        description: "Run cap in USD (Claude Code's estimate); on Bedrock also limited by the monthly allowance"
         type: string
         default: "3"
 
@@ -91,7 +91,8 @@ jobs:
           git config user.name "TRADEMIND agent"
           git config user.email "agent@trademind.invalid"
 
-      - name: Bedrock credentials (Bedrock-only role, 1 hour)
+      - name: Bedrock credentials for the fallback (Bedrock-only role, 1 hour)
+        if: vars.TRADEMIND_AGENT_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.TRADEMIND_AGENT_ROLE_ARN }}
@@ -111,7 +112,10 @@ jobs:
         env:
           TASK: ${{ inputs.task }}
           BUDGET_USD: ${{ inputs.budget_usd }}
-          MODEL: >-
+          MODEL_ALIAS: ${{ inputs.model }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          AGENT_BEDROCK_MONTHLY_USD: ${{ vars.AGENT_BEDROCK_MONTHLY_USD || '20' }}
+          BEDROCK_MODEL: >-
             ${{ inputs.model == 'opus'
                 && (vars.TRADEMIND_AGENT_OPUS_MODEL || 'global.anthropic.claude-opus-5-5')
                 || (vars.TRADEMIND_AGENT_SONNET_MODEL || 'global.anthropic.claude-sonnet-5-5') }}

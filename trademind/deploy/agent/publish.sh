@@ -14,6 +14,12 @@ if [ -z "$(git rev-list origin/main..HEAD)" ]; then
   echo "No file changes; nothing to push."
   exit 0
 fi
+# Last line of defence: never push anything that looks like a credential.
+if git diff origin/main..HEAD | grep '^+' \
+    | grep -Eq 'sk-ant-[A-Za-z0-9_-]{10,}|(AKIA|ASIA)[A-Z0-9]{16}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}'; then
+  echo "::error::The changes contain something that looks like a credential. Not pushing; check the run." >&2
+  exit 1
+fi
 
 git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
 

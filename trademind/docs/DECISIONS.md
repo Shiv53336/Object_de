@@ -29,6 +29,7 @@ The owner asked for the build to be completed end to end, with design decisions 
 | D23 | 2026-11-17 | Market regime: rule-based label from the market symbol's session-start trend and volatility | Explainable, no lookahead; becomes a scoreboard dimension (`--by market_regime`) | After enough paper trades per regime |
 | D24 | 2026-11-17 | Dashboard as one static page served by the API, not a separate Next.js app | No build chain or extra service; the token stays in the browser session; reached through the SSM tunnel | If several people need access |
 | D25 | 2026-11-17 | Ops agent: Claude Code headless on Bedrock, started by a GitHub Actions workflow on a self-hosted runner (separate `agent` user, OIDC Bedrock-only role, no push rights) | Remote Control needs a claude.ai login, not Bedrock; Actions gives a queue, logs and a PR review gate with no inbound ports | If a second machine is added for the agent |
+| D26 | 2026-11-17 | Owner's ceiling Rs 10,000/month all-in: the ops agent runs on Claude Pro first; Bedrock only as a fallback capped at $20/month; AWS budget alarm $60 | Max (from Rs 11,999) alone exceeds the ceiling; Pro is a flat fee and the caps make overspend impossible rather than merely alerted | If Pro limits block testing every week |
 
 ## Findings worth knowing
 

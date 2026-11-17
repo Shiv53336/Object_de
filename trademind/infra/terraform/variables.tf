@@ -16,9 +16,13 @@ variable "alert_email" {
 }
 
 variable "monthly_budget_usd" {
-  description = "Monthly AWS budget; alert at 80% of forecast. Blueprint ceiling is about Rs 10,000."
+  description = <<-EOT
+    Monthly AWS budget; alert at 80% of forecast. The owner's ceiling is Rs 10,000 a month for everything
+    (AWS, Claude Pro, Kite Connect), so AWS gets about $60: server ~$23, Bedrock research notes $15,
+    agent fallback $20 (docs/AGENT.md).
+  EOT
   type        = number
-  default     = 110
+  default     = 60
 }
 
 variable "github_repo" {
