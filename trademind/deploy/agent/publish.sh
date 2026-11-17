@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# After Claude Code finishes: commit anything left uncommitted, push $BRANCH and open a pull request.
+# Runs with the workflow token, which Claude never sees. Only agent/* branches are pushed here.
+set -euo pipefail
+
+case "$BRANCH" in agent/*) ;; *) echo "refusing to push $BRANCH" >&2; exit 1 ;; esac
+OUT="${RUNNER_TEMP:-/tmp}/agent"
+
+if [ -n "$(git status --porcelain)" ]; then
+  git add -A
+  git commit -q -m "agent: changes left uncommitted at the end of the run"
+fi
+if [ -z "$(git rev-list origin/main..HEAD)" ]; then
+  echo "No file changes; nothing to push."
+  exit 0
+fi
+
+git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
+
+title="agent: $(printf '%s' "$TASK" | tr '\n' ' ' | cut -c1-70)"
+{
+  echo "**Request:** $TASK"
+  echo
+  echo "Claude Code: \`${CLAUDE_OUTCOME}\` · ruff + pytest on this branch: \`${VERIFY_OUTCOME}\` · run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+  echo
+  cat "$OUT/result.md" 2>/dev/null || echo "(no result recorded)"
+} > "$OUT/pr-body.md"
+
+draft=()
+if [ "$CLAUDE_OUTCOME" != "success" ] || [ "$VERIFY_OUTCOME" != "success" ]; then
+  draft=(--draft)
+fi
+if url=$(gh pr create --base main --head "$BRANCH" --title "$title" --body-file "$OUT/pr-body.md" "${draft[@]}"); then
+  echo "Pull request: $url"
+  echo "::notice title=Pull request::$url"
+else
+  compare="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${BRANCH}"
+  echo "Could not open a pull request (allow Actions to create PRs in the repo settings). Branch: $compare"
+  echo "::notice title=Branch pushed::$compare"
+fi

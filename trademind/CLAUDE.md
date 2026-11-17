@@ -16,14 +16,19 @@ TRADEMIND is a research-first trading platform for NSE that runs on paper only. 
 - **Never write code that places, modifies or cancels real orders.** Broker access is read-only. `tests/test_no_order_code.py` enforces this; never weaken, skip or delete it.
 - **Only PAPER execution.** Do not add or enable other execution modes.
 - **Never commit secrets.** Keys and tokens live in `.env` and `data/`, both gitignored. If you see a secret in a diff, stop and tell the owner.
-- **Stay inside `trademind/`.** The only file allowed elsewhere is `.github/workflows/trademind-ci.yml`. Never touch `expense-tracker/` or its workflow.
+- **Stay inside `trademind/`.** The only files allowed elsewhere are `.github/workflows/trademind-ci.yml` and `.github/workflows/trademind-agent.yml`. Never touch `expense-tracker/` or its workflow.
 - **The specs are the source of truth.** If a spec is ambiguous, contradictory or looks wrong, stop and ask. Do not pick an interpretation silently, and do not edit `PLAN.md` or `STRATEGIES.md` to match your code.
 - **No new dependencies** beyond those a card names.
 - **No lookahead.** A decision at a bar's close uses only data up to that bar. New features need a causality test (PLAN 5.4).
 - **Deterministic by default.** Anything random takes an explicit seed. Tests never use the network, the wall clock or real credentials.
 - **Do not tune.** Never change a strategy parameter, threshold or rule to make results look better. Parameters change only through an owner-approved spec change with a new strategy `version`.
 - **Do not read holdout data** except through `trademind validate` (PLAN 9.2).
+- **Never weaken the agent guardrails** (`.claude/settings.json`, `deploy/agent/sudoers`, `tests/test_agent_harness.py`, the agent workflow) unless the owner asks for that change.
 - **Do not change the core** (`backtesting/session.py`, `paper_broker/broker.py`, `risk_engine/engine.py`, `strategy_engine/view.py`) unless the card says so. If a card seems to need it, stop and ask.
+
+## Running as the ops agent
+
+When the `trademind-agent` workflow starts you (docs/AGENT.md), the request in the prompt replaces step 1 above: do that request, not the next card, unless it asks for a card. You cannot push or deploy; commit on the branch you are given and the workflow opens the pull request. End with the short report the prompt asks for.
 
 ## Conventions
 

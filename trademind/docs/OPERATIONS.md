@@ -99,6 +99,9 @@ docker compose run --rm api trademind report --run-id <id> --by time_bucket
 
 After each trading day `trademind research postmortem` writes `data/reports/<day>-postmortem.md` and sends a short Telegram note; on Fridays `trademind research weekly` writes at most two proposals to `data/research/`. Nothing is applied automatically. Spend stops at `monthly_budget_usd`.
 
+### Ops agent (optional)
+Claude Code can work on the server for you on Bedrock: run tests and backtests, do cards, check status, deploy merged `main`. Setup and guardrails: [`AGENT.md`](AGENT.md).
+
 ## 5. Troubleshooting
 | Symptom | Fix |
 |---|---|

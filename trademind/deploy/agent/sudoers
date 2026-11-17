@@ -1,0 +1,4 @@
+# Installed by deploy/agent/setup.sh as /etc/sudoers.d/trademind-agent.
+# The ops agent may run exactly these two scripts as ec2-user, with no arguments, and nothing else.
+# Both live in a checkout only ec2-user can write, so the agent cannot change what they do.
+agent ALL=(ec2-user) NOPASSWD: /opt/trademind/trademind/deploy/agent/status.sh "", /opt/trademind/trademind/deploy/agent/deploy-main.sh ""
