@@ -8,7 +8,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from trademind.services.feature_engine.context import trade_tags
+from trademind.services.feature_engine.context import market_regime, trade_tags
 from trademind.services.feature_engine.selector import select_in_play
 from trademind.services.paper_broker.broker import (
     Bar,
@@ -100,30 +100,59 @@ class EngineSession:
             out[minutes] = {int(gc): i for i, gc in enumerate(close_g)}
         return out
 
-    # ---- the day -----------------------------------------------------------------------
-    def run_day(self, day: date, frames: dict[str, DayFrames], opening: dict[str, dict],
-                eod: dict[str, dict]) -> DayResult:
-        res = DayResult()
+    # ---- the day: begin, step every base bar, finish ---------------------------------
+    def begin_day(self, day: date) -> None:
+        self.day = day
         self.risk.start_day(day)
         for x in self.instances:
             x.on_day_start(day)
         self._records: dict[str, dict] = {}
         self._exit_g: dict[str, int] = {}
-        grids = {sym: self._grid(fr) for sym, fr in frames.items()}
-        tf_rows = {sym: self._tf_rows(fr) for sym, fr in frames.items()}
-        stamps = session_grid(day, self.session.open, self.session.close, self.b)
+        self._res = DayResult()
+        self._cache: dict[str, tuple[DayFrames, _Grid, dict[int, dict[int, int]]]] = {}
+        self._stamps = session_grid(day, self.session.open, self.session.close, self.b)
+        self._regime: str | None = None
 
-        for g in range(self.n):
-            for sym in self.broker.active_symbols():
-                gr = grids.get(sym)
-                if gr is not None and gr.has[g]:
-                    bar = Bar(stamps[g], gr.o[g], gr.h[g], gr.lo[g], gr.c[g], g)
-                    self._handle(self.broker.on_bar(sym, bar), res)
-            if g == self.sel_g:
-                self._select(frames, opening)
-            for minutes in self.closes_at.get(g, ()):
-                self._evaluate(minutes, g, frames, tf_rows)
+    def _sync(self, frames: dict[str, DayFrames]) -> tuple[dict[str, _Grid], dict]:
+        """Grids and timeframe-row maps, rebuilt only for frames objects that changed."""
+        for sym, fr in frames.items():
+            hit = self._cache.get(sym)
+            if hit is None or hit[0] is not fr:
+                self._cache[sym] = (fr, self._grid(fr), self._tf_rows(fr))
+        grids = {sym: self._cache[sym][1] for sym in frames}
+        rows = {sym: self._cache[sym][2] for sym in frames}
+        return grids, rows
 
+    def step(self, g: int, frames: dict[str, DayFrames], opening: dict[str, dict] | None = None) -> None:
+        """Process base bar g: broker first, then selection, then strategies closing at g."""
+        grids, tf_rows = self._sync(frames)
+        self._tag_regime(frames)
+        for sym in self.broker.active_symbols():
+            gr = grids.get(sym)
+            if gr is not None and gr.has[g]:
+                bar = Bar(self._stamps[g], gr.o[g], gr.h[g], gr.lo[g], gr.c[g], g)
+                self._handle(self.broker.on_bar(sym, bar), self._res)
+        if g == self.sel_g:
+            self._select(frames, opening or {})
+        for minutes in self.closes_at.get(g, ()):
+            self._evaluate(minutes, g, frames, tf_rows)
+
+    def _tag_regime(self, frames: dict[str, DayFrames]) -> None:
+        """Market regime from the market symbol's session-start tags, copied to every symbol."""
+        if self._regime is None and self.market_symbol in frames:
+            self._regime = market_regime(frames[self.market_symbol].ctx.tags)
+        if self._regime is not None:
+            for fr in frames.values():
+                fr.ctx.tags.setdefault("market_regime", self._regime)
+
+    def closed_trades(self) -> list[Trade]:
+        return list(self._res.trades)
+
+    def finish_day(self, frames: dict[str, DayFrames], eod: dict[str, dict]) -> DayResult:
+        grids, _ = self._sync(frames)
+        self._tag_regime(frames)
+        res = self._res
+        stamps = self._stamps
         for sym in self.broker.active_symbols():
             gr = grids.get(sym)
             last = None
@@ -131,7 +160,6 @@ class EngineSession:
                 k = int(np.flatnonzero(gr.has)[-1])
                 last = Bar(stamps[k], gr.o[k], gr.h[k], gr.lo[k], gr.c[k], k)
             self._handle(self.broker.end_of_day(sym, last), res)
-
         for t in res.trades:
             fr = frames[t.symbol]
             if t.exit_reason == ExitReason.STOP:
@@ -143,9 +171,16 @@ class EngineSession:
             }
         res.signals = list(self._records.values())
         res.day_rows = [
-            (day, sym, {**fr.ctx.tags, **eod.get(sym, {})}) for sym, fr in sorted(frames.items())
+            (self.day, sym, {**fr.ctx.tags, **eod.get(sym, {})}) for sym, fr in sorted(frames.items())
         ]
         return res
+
+    def run_day(self, day: date, frames: dict[str, DayFrames], opening: dict[str, dict],
+                eod: dict[str, dict]) -> DayResult:
+        self.begin_day(day)
+        for g in range(self.n):
+            self.step(g, frames, opening)
+        return self.finish_day(frames, eod)
 
     def _handle(self, events: list[BrokerEvent], res: DayResult) -> None:
         for ev in events:

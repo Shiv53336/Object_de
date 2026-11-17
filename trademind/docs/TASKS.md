@@ -1,6 +1,6 @@
 # Task Cards
 
-Status: v3, 2026-11-16.
+Status: v4, 2026-11-17. Owner decision: build end to end; design calls are logged in `DECISIONS.md`.
 
 The research core is built and tested (see "Done"). The cards below are the remaining work, **in order, one card per branch**. Rules for how to work are in `../CLAUDE.md`. "PLAN x.y" and "STRATEGIES C.n" refer to the files in this folder.
 
@@ -35,25 +35,25 @@ The research core is built and tested (see "Done"). The cards below are the rema
 
 | Card | Title | Who | Status |
 |---|---|---|---|
-| T01 | Strategy: failed_orb_fade | small | todo |
-| T02 | Strategy: overextension_fade | small | todo |
-| T03 | Strategy: intraday_contraction | small | todo |
-| T04 | Strategy: first_half_hour_momentum | small | todo |
-| T05 | Validation and promotion gate | small | todo |
+| T01 | Strategy: failed_orb_fade | small | done |
+| T02 | Strategy: overextension_fade | small | done |
+| T03 | Strategy: intraday_contraction | small | done |
+| T04 | Strategy: first_half_hour_momentum | small | done |
+| T05 | Validation and promotion gate | small | done |
 | T06 | Alembic migrations | small | todo |
-| T07 | Kite read-only gateway, login, instruments, history download | small | todo |
-| T08 | Tick-to-bar aggregator | small | todo |
-| T09 | Live paper runner | design first | todo |
-| T10 | Telegram notifier | small | todo |
+| T07 | Kite read-only gateway, login, instruments, history download | small | done |
+| T08 | Tick-to-bar aggregator | small | done |
+| T09 | Live paper runner | design first | done (`docs/design/T09-live-paper.md`) |
+| T10 | Telegram notifier | small | done |
 | T11 | Redis Streams event bus | design first | todo |
-| T12 | AWS deployment (Terraform, EC2, SSM, backups) | design first | todo |
-| T13 | LLM client and daily post-mortem | design first | todo |
-| T14 | Setup judge, shadow mode | design first | todo |
-| T15 | Weekly review and hypothesis backlog | design first | todo |
+| T12 | AWS deployment (Terraform, EC2, SSM, backups) | design first | done (`docs/OPERATIONS.md`) |
+| T13 | LLM client and daily post-mortem | design first | done (`services/ai_research/`) |
+| T14 | Setup judge, shadow mode | design first | deferred until news exists (T16) |
+| T15 | Weekly review and hypothesis backlog | design first | done (max two proposals, never applied) |
 | T16 | News ingestion | design first | todo |
-| T17 | Market regime engine | design first | todo |
+| T17 | Market regime engine | design first | done (rule-based `market_regime` tag) |
 | T18 | Swing engine and swing_vcp | design first | todo |
-| T19 | Dashboard | design first | todo |
+| T19 | Dashboard | design first | done (`/dashboard` on the API) |
 | T20 | Options and expiry | design first | todo |
 
 ---

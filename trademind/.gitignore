@@ -7,3 +7,8 @@ __pycache__/
 *.parquet
 .pytest_cache/
 .ruff_cache/
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraform.lock.hcl

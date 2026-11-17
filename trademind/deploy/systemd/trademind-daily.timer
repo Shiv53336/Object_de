@@ -1,0 +1,9 @@
+[Unit]
+Description=Start TRADEMIND before the market opens on weekdays
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08:40:00 Asia/Kolkata
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -3,31 +3,51 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import date
 from pathlib import Path
 from typing import Annotated
 
+import pandas as pd
 import typer
+import yaml
 
 from trademind import __version__
 from trademind.database.journal import Journal
+from trademind.services.ai_research.review import daily_postmortem, make_llm, telegram_text, weekly_review
 from trademind.services.backtesting.runner import run_backtest
+from trademind.services.broker_gateway.kite import (
+    InstrumentDirectory,
+    KiteGateway,
+    KiteSource,
+    TokenStore,
+    make_kite_client,
+)
+from trademind.services.execution.kite_stream import KiteTickStream
+from trademind.services.execution.live_paper import LivePaperRunner
 from trademind.services.instrument_registry.registry import build_instruments
 from trademind.services.learning.metrics import scoreboard, to_markdown
+from trademind.services.learning.validation import format_report, promotion_report
 from trademind.services.market_data.source import DataSource, validate_bars
 from trademind.services.market_data.store import CsvSource, ParquetStore
 from trademind.services.market_data.synthetic import SyntheticSource
-from trademind.services.strategy_engine.registry import available
+from trademind.services.notify.telegram import Notifier
+from trademind.services.strategy_engine.registry import available, build_instances
+from trademind.shared.clock import IST, at
 from trademind.shared.config import AppConfig, load_config, runtime_paths
 from trademind.shared.exceptions import TrademindError
 from trademind.shared.logging import setup_logging
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="TRADEMIND (paper trading only)")
 data_app = typer.Typer(no_args_is_help=True, help="Market data tools")
+paper_app = typer.Typer(no_args_is_help=True, help="Live paper trading (simulated fills only)")
+research_app = typer.Typer(no_args_is_help=True, help="AI research notes (advisory only)")
 app.add_typer(data_app, name="data")
+app.add_typer(paper_app, name="paper")
+app.add_typer(research_app, name="research")
 
 ConfigDir = Annotated[Path | None, typer.Option(help="Config directory (default: ./config)")]
-Source = Annotated[str, typer.Option(help="synthetic | parquet | csv")]
+Source = Annotated[str, typer.Option(help="synthetic | parquet | csv | kite")]
 
 
 def _date(s: str) -> date:
@@ -35,6 +55,38 @@ def _date(s: str) -> date:
         return date.fromisoformat(s)
     except ValueError as exc:
         raise typer.BadParameter(f"expected YYYY-MM-DD, got {s!r}") from exc
+
+
+def _now() -> pd.Timestamp:
+    return pd.Timestamp.now(tz=IST)
+
+
+def _kite_env() -> tuple[str, str]:
+    key, secret = os.environ.get("KITE_API_KEY", ""), os.environ.get("KITE_API_SECRET", "")
+    if not key:
+        typer.echo("error: set KITE_API_KEY (and KITE_API_SECRET) in .env", err=True)
+        raise typer.Exit(2)
+    return key, secret
+
+
+def _kite(today: date) -> tuple[str, str, KiteGateway, InstrumentDirectory]:
+    key, _ = _kite_env()
+    token = TokenStore(runtime_paths().data_dir / "kite_token.json").load(today)
+    if not token:
+        typer.echo("error: no Kite session for today: run `trademind login`", err=True)
+        raise typer.Exit(2)
+    gateway = KiteGateway(make_kite_client(key, token))
+    directory = InstrumentDirectory.load_or_fetch(gateway, runtime_paths().data_dir, today)
+    return key, token, gateway, directory
+
+
+def _kite_instruments(cfg: AppConfig, directory: InstrumentDirectory, today: date) -> dict:
+    overrides = {}
+    for sym, inst in build_instruments(cfg.settings).items():
+        found = directory.lot_and_tick(sym, inst.kind, today)
+        if found:
+            overrides[sym] = found
+    return build_instruments(cfg.settings, overrides)
 
 
 def _source(cfg: AppConfig, name: str, seed: int, csv_root: Path | None) -> DataSource:
@@ -47,6 +99,10 @@ def _source(cfg: AppConfig, name: str, seed: int, csv_root: Path | None) -> Data
         if csv_root is None:
             raise typer.BadParameter("--csv-root is required for --source csv")
         return CsvSource(csv_root)
+    if name == "kite":
+        today = _now().date()
+        _, _, gateway, directory = _kite(today)
+        return KiteSource(gateway, directory)
     raise typer.BadParameter(f"unknown source {name!r}")
 
 
@@ -113,6 +169,44 @@ def backtest(
 
 
 @app.command()
+def validate(
+    instance: Annotated[str, typer.Option(help="Strategy instance, e.g. orb_momentum@5minute")],
+    start: Annotated[str, typer.Option(help="First holdout session (>= validation.holdout_start)")],
+    end: Annotated[str, typer.Option(help="Last holdout session")],
+    source: Source = "synthetic",
+    seed: Annotated[int, typer.Option(help="Seed for synthetic data")] = 7,
+    csv_root: Annotated[Path | None, typer.Option(help="Root folder for --source csv")] = None,
+    config_dir: ConfigDir = None,
+) -> None:
+    """Out-of-sample check and promotion gate (PLAN 9.3). The only command that reads holdout data."""
+    cfg = load_config(config_dir)
+    v = cfg.settings.validation
+    journal = Journal(runtime_paths().database_url)
+    try:
+        (strat,) = build_instances(cfg.strategies, {instance})
+    except TrademindError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    used = journal.count_holdout_evals(instance, strat.version)
+    if used >= v.max_holdout_evals:
+        typer.echo(f"error: {instance} v{strat.version} has used its {v.max_holdout_evals} holdout "
+                   "evaluations. Change the strategy (new version) before looking again.", err=True)
+        raise typer.Exit(2)
+    research = journal.latest_run(instance, "research")
+    if research is None:
+        typer.echo(f"error: no finished research backtest includes {instance}; run `trademind backtest` "
+                   "first", err=True)
+        raise typer.Exit(2)
+    try:
+        holdout = run_backtest(cfg, _source(cfg, source, seed, csv_root), _date(start), _date(end), journal,
+                               data_split="holdout", only={instance}, source_name=source)
+    except (TrademindError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(format_report(promotion_report(journal, v, instance, strat.version, research, holdout)))
+
+
+@app.command()
 def report(
     run_id: Annotated[str, typer.Option(help="Run id from `backtest`")],
     by: Annotated[str | None, typer.Option(help="Context tag to break down by")] = None,
@@ -143,6 +237,42 @@ def runs(limit: int = 20) -> None:
 
 
 @app.command()
+def login(
+    telegram: Annotated[bool, typer.Option(help="Send the login link on Telegram, wait for reply")] = False,
+    timeout: Annotated[int, typer.Option(help="Seconds to wait for the Telegram reply")] = 1800,
+) -> None:
+    """Daily Kite login: open the URL, log in, paste the request_token from the redirect URL."""
+    key, secret = _kite_env()
+    if not secret:
+        typer.echo("error: set KITE_API_SECRET in .env", err=True)
+        raise typer.Exit(2)
+    store = TokenStore(runtime_paths().data_dir / "kite_token.json")
+    if store.load(_now().date()):
+        typer.echo("Already logged in for today.")
+        return
+    gateway = KiteGateway(make_kite_client(key))
+    if telegram:
+        notifier = Notifier()
+        if not notifier.enabled:
+            typer.echo("error: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID for --telegram", err=True)
+            raise typer.Exit(2)
+        request_token = notifier.wait_for_request_token(gateway.login_url(), timeout_s=timeout)
+        if not request_token:
+            typer.echo("error: no login received", err=True)
+            raise typer.Exit(3)
+    else:
+        typer.echo(f"1. Open: {gateway.login_url()}")
+        typer.echo("2. After login, copy request_token=... from the redirect URL.")
+        request_token = typer.prompt("request_token").strip()
+    access = gateway.create_session(request_token, secret)
+    store.save(access, _now().date())
+    user = KiteGateway(make_kite_client(key, access)).profile().get("user_name", "?")
+    typer.echo(f"Logged in as {user}. Session valid for today only.")
+    if telegram:
+        Notifier().send(f"TRADEMIND: logged in as {user}. Paper trading starts at 09:15.")
+
+
+@app.command()
 def api(host: str = "127.0.0.1", port: int = 8000) -> None:
     """Serve the read-only API."""
     import uvicorn
@@ -168,6 +298,141 @@ def data_synth(
         n = store.write(sym, s.session.base_interval, src.get_bars(sym, s.session.base_interval,
                                                                    _date(start), _date(end)))
         typer.echo(f"{sym}: {n} bars")
+
+
+@data_app.command("download")
+def data_download(
+    start: Annotated[str, typer.Option(help="First date, YYYY-MM-DD")],
+    end: Annotated[str, typer.Option(help="Last date, YYYY-MM-DD")],
+    symbols: Annotated[str, typer.Option(help="Comma list, or 'all' for the universe")] = "all",
+    config_dir: ConfigDir = None,
+) -> None:
+    """Download base-interval candles from Kite into the Parquet store (read-only API)."""
+    cfg = load_config(config_dir)
+    s = cfg.settings
+    today = _now().date()
+    _, _, gateway, directory = _kite(today)
+    source = KiteSource(gateway, directory)
+    store = ParquetStore(runtime_paths().bars_dir)
+    wanted = list(build_instruments(s)) if symbols == "all" else [x.strip() for x in symbols.split(",")]
+    for sym in wanted:
+        df = source.get_bars(sym, s.session.base_interval, _date(start), _date(end))
+        total = store.write(sym, s.session.base_interval, df) if not df.empty else 0
+        found = validate_bars(df, s.session, s.session.base_minutes)
+        problems = "; ".join(p for p in found if not p.startswith("info"))
+        typer.echo(f"{sym}: +{len(df)} bars (store {total}){'  PROBLEMS: ' + problems if problems else ''}")
+
+
+@data_app.command("instruments")
+def data_instruments(
+    write_expiries: Annotated[bool, typer.Option(help="Write upcoming expiries to expiries.yaml")] = False,
+    config_dir: ConfigDir = None,
+) -> None:
+    """Refresh the Kite instruments dump; compare lot sizes with config."""
+    cfg = load_config(config_dir)
+    today = _now().date()
+    _, _, _, directory = _kite(today)
+    for sym, inst in build_instruments(cfg.settings).items():
+        found = directory.lot_and_tick(sym, inst.kind, today)
+        note = "" if not found or found[0] == inst.lot_size else "  <- differs from config"
+        typer.echo(f"{sym:12s} token={directory.token(sym)} kite={found} config_lot={inst.lot_size}{note}")
+    if write_expiries:
+        exp = directory.expiries(today)
+        merged = {k: sorted({*cfg.expiries.get(k, []), *v}) for k, v in exp.items()}
+        path = cfg.config_dir / "expiries.yaml"
+        path.write_text(yaml.safe_dump({k: [d.isoformat() for d in v] for k, v in merged.items()}))
+        typer.echo(f"wrote {path}")
+
+
+@paper_app.command("run")
+def paper_run(
+    grace: Annotated[float, typer.Option(help="Seconds to wait after each minute before processing")] = 5.0,
+    config_dir: ConfigDir = None,
+) -> None:
+    """Live paper trading for today, from Kite ticks. Simulated fills only; no orders are sent."""
+    cfg = load_config(config_dir)
+    s = cfg.settings
+    today = _now().date()
+    key, token, gateway, directory = _kite(today)
+    instruments = _kite_instruments(cfg, directory, today)
+    store = ParquetStore(runtime_paths().bars_dir)
+    journal = Journal(runtime_paths().database_url)
+    notifier = Notifier()
+    try:
+        runner = LivePaperRunner(cfg, store, journal, build_instances(cfg.strategies), today,
+                                 notifier=notifier, instruments=instruments, grace_seconds=grace)
+    except TrademindError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    syms = list(runner._today)
+    now = _now()
+    if now > at(today, s.session.open):
+        src = KiteSource(gateway, directory)
+        bars = {sym: src.get_bars(sym, s.session.base_interval, today, today) for sym in syms}
+        n = runner.backfill(bars, now)
+        typer.echo(f"backfilled {n} bars")
+    stream = KiteTickStream(key, token, {directory.token(sym): sym for sym in syms}, runner.on_ticks, _now)
+    stream.start()
+    typer.echo(f"paper run {runner.run_id} started for {len(syms)} symbols; Ctrl+C to stop")
+    try:
+        while not runner.finished:
+            runner.poll(_now())
+            time.sleep(1)
+    except KeyboardInterrupt:
+        typer.echo("stopping early: closing open paper positions at the last bar")
+        runner.finish()
+    finally:
+        stream.stop()
+    typer.echo(runner.summary(runner.result) if runner.result else "no result")
+
+
+@research_app.command("postmortem")
+def research_postmortem(
+    run_id: Annotated[str | None, typer.Option(help="Run to review (default: latest live run)")] = None,
+    config_dir: ConfigDir = None,
+) -> None:
+    """LLM review of one paper-trading day; writes data/reports and a Telegram summary."""
+    cfg = load_config(config_dir)
+    journal = Journal(runtime_paths().database_url)
+    if run_id is None:
+        runs = journal.read_runs(50)
+        live = runs[(runs["data_split"] == "live") & (runs["status"] == "done")] if not runs.empty else runs
+        if live.empty:
+            typer.echo("error: no finished live paper run to review", err=True)
+            raise typer.Exit(2)
+        run_id = str(live.iloc[0]["run_id"])
+    try:
+        note = daily_postmortem(cfg, journal, make_llm(cfg, journal), run_id,
+                                runtime_paths().data_dir / "reports")
+    except (TrademindError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    text = telegram_text("TRADEMIND post-mortem", note)
+    Notifier().send(text)
+    typer.echo(text)
+
+
+@research_app.command("weekly")
+def research_weekly(
+    start: Annotated[str | None, typer.Option(help="First day (default: 7 days ago)")] = None,
+    end: Annotated[str | None, typer.Option(help="Last day (default: today)")] = None,
+    config_dir: ConfigDir = None,
+) -> None:
+    """LLM review of the week; at most two proposals, written to data/research. Never applied."""
+    cfg = load_config(config_dir)
+    journal = Journal(runtime_paths().database_url)
+    today = _now().date()
+    a = _date(start) if start else today - pd.Timedelta(days=7).to_pytimedelta()
+    b = _date(end) if end else today
+    try:
+        out = runtime_paths().data_dir / "research"
+        note = weekly_review(cfg, journal, make_llm(cfg, journal), a, b, out)
+    except (TrademindError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    text = telegram_text("TRADEMIND weekly review", note)
+    Notifier().send(text)
+    typer.echo(text)
 
 
 @data_app.command("validate")

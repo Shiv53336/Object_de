@@ -1,6 +1,6 @@
 # Strategy and Feature Specifications
 
-Status: v2, 2026-11-15. Implemented: `orb_momentum` (C.1) and `sweep_reversal` (C.6). Changes in v2: every intraday rule is written for any timeframe; higher-timeframe trend features; optional stop buffer; new trap setup `sweep_reversal`.
+Status: v2, 2026-11-15. Implemented: all of Part C (C.1-C.6). Part D is a draft. Changes in v2: every intraday rule is written for any timeframe; higher-timeframe trend features; optional stop buffer; new trap setup `sweep_reversal`.
 
 These are **hypotheses to test**, written precisely enough to code and to falsify. None is known to be profitable on Indian markets after costs. Most of the supporting research is on US data.
 

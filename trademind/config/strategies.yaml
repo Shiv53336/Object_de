@@ -3,10 +3,12 @@
 instances:
   - {id: orb_momentum, timeframe: 5minute, enabled: true}
   - {id: orb_momentum, timeframe: 15minute, enabled: true}
+  - {id: failed_orb_fade, timeframe: 5minute, enabled: true}
+  - {id: failed_orb_fade, timeframe: 15minute, enabled: true}
+  - {id: overextension_fade, timeframe: 5minute, enabled: true}
+  - {id: overextension_fade, timeframe: 15minute, enabled: true}
+  - {id: intraday_contraction, timeframe: 5minute, enabled: true}
+  - {id: intraday_contraction, timeframe: 15minute, enabled: true}
+  - {id: first_half_hour_momentum, timeframe: 5minute, enabled: true}
   - {id: sweep_reversal, timeframe: 5minute, enabled: true}
   - {id: sweep_reversal, timeframe: 15minute, enabled: true}
-  # Not implemented yet; enabled by their task cards.
-  - {id: failed_orb_fade, timeframe: 5minute, enabled: false}
-  - {id: overextension_fade, timeframe: 5minute, enabled: false}
-  - {id: intraday_contraction, timeframe: 5minute, enabled: false}
-  - {id: first_half_hour_momentum, timeframe: 5minute, enabled: false}

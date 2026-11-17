@@ -1,7 +1,8 @@
 """Deterministic synthetic market data for development and tests (no broker needed).
 
 Daily open/close levels come from a per-symbol random walk over a fixed calendar, with a
-shared market factor. Each day's 1-minute path is a Brownian bridge from that day's open
+shared market factor. Minute volume follows a U-shape through the day and rises with the size
+of each minute's move. Each day's 1-minute path is a Brownian bridge from that day's open
 to its close, generated from (seed, symbol, date). Any date range therefore returns
 identical bars for the same day. This data has no edge by construction: it is for
 exercising the pipeline, not for judging strategies.
@@ -149,8 +150,10 @@ class SyntheticSource:
         low = np.minimum(open_, close) * np.exp(-np.abs(rng.normal(0, wick_scale, n)))
         if inst.has_volume:
             u = 1.0 + 1.5 * ((k - n / 2) / (n / 2)) ** 2
-            base = 2000 * m
-            volume = (base * activity[i] * u * rng.lognormal(0, 0.3, n)).astype("int64")
+            # volume rises with the size of the move, as on real breakouts
+            burst = 1.0 + 0.8 * np.abs(steps) / (daily_sigma / np.sqrt(n))
+            base = 1000 * m
+            volume = (base * activity[i] * u * burst * rng.lognormal(0, 0.3, n)).astype("int64")
         else:
             volume = np.zeros(n, dtype="int64")
         return pd.DataFrame(

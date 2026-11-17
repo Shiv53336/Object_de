@@ -129,3 +129,27 @@ trials = Table(
     Column("expectancy_r", Float),
     Index("ix_trials_strategy", "strategy_id", "data_split"),
 )
+
+llm_usage = Table(
+    "llm_usage",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ts", DateTime(timezone=True), nullable=False),
+    Column("model", String(128), nullable=False),
+    Column("use_case", String(32), nullable=False),
+    Column("input_tokens", Integer, nullable=False),
+    Column("output_tokens", Integer, nullable=False),
+    Column("cost_usd", Float, nullable=False),
+)
+
+research_notes = Table(
+    "research_notes",
+    metadata,
+    Column("note_id", String(64), primary_key=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("kind", String(16), nullable=False),  # postmortem | weekly
+    Column("period_start", Date, nullable=False),
+    Column("period_end", Date, nullable=False),
+    Column("model", String(128), nullable=False),
+    Column("content", JSON, nullable=False),
+)

@@ -47,7 +47,8 @@ class SymbolData:
     base_slices: dict[date, tuple[int, int]]
     tf_slices: dict[int, dict[date, tuple[int, int]]]
 
-    def frames(self, day: date, cfg: AppConfig) -> DayFrames | None:
+    def frames(self, day: date, cfg: AppConfig, ctx: DayContext | None = None) -> DayFrames | None:
+        """Today's frames. Pass `ctx` to keep a context the engine has already updated (live)."""
         if day not in self.base_slices:
             return None
         s, e = self.base_slices[day]
@@ -57,7 +58,7 @@ class SymbolData:
             a, b = self.tf_slices[minutes].get(day, (0, 0))
             tf[minutes] = df.iloc[a:b].reset_index(drop=True)
         row = self.day_table.loc[day]
-        ctx = DayContext(
+        ctx = ctx or DayContext(
             day=day,
             symbol=self.instrument.symbol,
             instrument=self.instrument,
@@ -90,12 +91,18 @@ class SymbolData:
 
 
 def prepare_symbol(
-    instrument: Instrument, raw_base: pd.DataFrame, cfg: AppConfig, timeframes: set[int]
+    instrument: Instrument,
+    raw_base: pd.DataFrame,
+    cfg: AppConfig,
+    timeframes: set[int],
+    daily: pd.DataFrame | None = None,
 ) -> SymbolData:
+    """Features for one symbol. `daily` overrides the daily history used for day context, so a
+    live runner can compute intraday features on a short window but day context on a long one."""
     session = cfg.settings.session
     base = add_htf_trend(add_base_features(raw_base, instrument), session)
     tf = {m: add_tf_features(resample_bars(base, m, session), instrument) for m in sorted(timeframes)}
-    daily = build_daily(raw_base)
+    daily = build_daily(raw_base) if daily is None else daily
     day_table = build_day_table(daily, instrument, cfg.expiries)
     or_stats = opening_stats(base, instrument, session, cfg.settings.selector.or_minutes, daily.index)
     return SymbolData(
