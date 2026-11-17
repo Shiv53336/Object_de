@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -158,7 +159,8 @@ def test_token_store_expires_daily(tmp_path) -> None:
     store.save("abc", date(2025, 9, 2))
     assert store.load(date(2025, 9, 2)) == "abc"
     assert store.load(date(2025, 9, 3)) is None
-    assert oct(store.path.stat().st_mode)[-3:] == "600"
+    if sys.platform != "win32":  # Windows has no owner-only permission bits; the file sits in data/
+        assert oct(store.path.stat().st_mode)[-3:] == "600"
 
 
 def test_session_exchange() -> None:

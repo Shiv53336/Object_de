@@ -22,7 +22,7 @@ def _settings() -> dict:
 
 
 def _agentlog(*args: str, stdin: str = "") -> str:
-    out = subprocess.run([sys.executable, str(AGENT / "agentlog.py"), *args], input=stdin,
+    out = subprocess.run([sys.executable, str(AGENT / "agentlog.py"), *args], input=stdin, env=UTF8,
                          capture_output=True, text=True, check=True, encoding="utf-8")
     return out.stdout
 
