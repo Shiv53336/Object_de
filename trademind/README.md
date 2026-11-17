@@ -104,5 +104,6 @@ Placeholders to set yourself: index lot sizes, and the risk unit for index futur
 | [`docs/STRATEGIES.md`](docs/STRATEGIES.md) | Exact rules for every feature and setup |
 | [`docs/TASKS.md`](docs/TASKS.md) | Remaining work as cards |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Kite and Telegram setup, AWS deployment, daily routine, backups |
+| [`docs/AGENT.md`](docs/AGENT.md) | Ops agent: Claude Code on the server on Bedrock, driven by a GitHub workflow |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Decisions taken during the build, with reasons |
 | [`CLAUDE.md`](CLAUDE.md) | Rules for the coding model working through the cards |

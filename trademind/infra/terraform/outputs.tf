@@ -19,3 +19,8 @@ output "api_tunnel" {
   description = "Forward the read-only API to your laptop on port 8000."
   value       = "aws ssm start-session --target ${aws_instance.trademind.id} --region ${var.region} --document-name AWS-StartPortForwardingSession --parameters portNumber=8000,localPortNumber=8000"
 }
+
+output "agent_role_arn" {
+  description = "Put this in the repository variable TRADEMIND_AGENT_ROLE_ARN (docs/AGENT.md)."
+  value       = aws_iam_role.agent.arn
+}

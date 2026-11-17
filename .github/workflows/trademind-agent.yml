@@ -1,0 +1,136 @@
+name: trademind-agent
+
+# Claude Code on Amazon Bedrock, running on the TRADEMIND server's self-hosted runner.
+# Start it from GitHub (Actions > trademind-agent > Run workflow), with
+# trademind/deploy/agent/dispatch.sh, or by asking Claude in chat to dispatch it.
+# Setup and guardrails: trademind/docs/AGENT.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "task: Claude Code does the request. status: server health. deploy: pull main and restart."
+        type: choice
+        options: [task, status, deploy]
+        default: task
+      task:
+        description: "The request for Claude Code (mode=task)"
+        type: string
+        required: false
+      model:
+        description: "Bedrock model"
+        type: choice
+        options: [sonnet, opus]
+        default: sonnet
+      budget_usd:
+        description: "Spend cap for this run in USD (Claude Code's own estimate)"
+        type: string
+        default: "3"
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: trademind-agent
+  cancel-in-progress: false
+
+jobs:
+  status:
+    if: inputs.mode == 'status'
+    runs-on: [self-hosted, trademind]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: trademind/deploy/agent
+      - name: Server status
+        run: |
+          set -o pipefail
+          sudo -n -u ec2-user /opt/trademind/trademind/deploy/agent/status.sh 2>&1 \
+            | python3 trademind/deploy/agent/agentlog.py notice "Server status"
+
+  deploy:
+    if: inputs.mode == 'deploy'
+    runs-on: [self-hosted, trademind]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: trademind/deploy/agent
+      - name: Deploy main
+        run: |
+          set -o pipefail
+          sudo -n -u ec2-user /opt/trademind/trademind/deploy/agent/deploy-main.sh 2>&1 \
+            | python3 trademind/deploy/agent/agentlog.py notice "Deploy"
+
+  task:
+    if: inputs.mode == 'task'
+    runs-on: [self-hosted, trademind]
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: trademind
+    env:
+      BRANCH: agent/${{ github.run_number }}
+      TRADEMIND_DATA_DIR: /home/agent/tm-data
+    steps:
+      - uses: actions/checkout@v5
+        id: checkout
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Branch and git identity
+        run: |
+          git switch -c "$BRANCH"
+          git config user.name "TRADEMIND agent"
+          git config user.email "agent@trademind.invalid"
+
+      - name: Bedrock credentials (Bedrock-only role, 1 hour)
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.TRADEMIND_AGENT_ROLE_ARN }}
+          aws-region: ap-south-1
+          role-duration-seconds: 3600
+
+      - name: Python environment
+        run: |
+          [ -x "$HOME/venv/bin/python" ] || python3.11 -m venv "$HOME/venv"
+          "$HOME/venv/bin/pip" install -q -e ".[dev]"
+          mkdir -p "$TRADEMIND_DATA_DIR"
+          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Claude Code
+        id: claude
+        env:
+          TASK: ${{ inputs.task }}
+          BUDGET_USD: ${{ inputs.budget_usd }}
+          MODEL: >-
+            ${{ inputs.model == 'opus'
+                && (vars.TRADEMIND_AGENT_OPUS_MODEL || 'global.anthropic.claude-opus-5-5')
+                || (vars.TRADEMIND_AGENT_SONNET_MODEL || 'global.anthropic.claude-sonnet-5-5') }}
+          FAST_MODEL: ${{ vars.TRADEMIND_AGENT_FAST_MODEL || 'global.anthropic.claude-sonnet-5-5' }}
+        run: deploy/agent/run-task.sh
+
+      - name: Verify (ruff, pytest)
+        id: verify
+        if: always() && steps.checkout.outcome == 'success'
+        continue-on-error: true
+        run: |
+          ruff check .
+          pytest -q
+
+      - name: Push branch and open pull request
+        if: always() && steps.checkout.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TASK: ${{ inputs.task }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        run: deploy/agent/publish.sh

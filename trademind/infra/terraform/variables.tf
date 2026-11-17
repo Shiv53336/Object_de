@@ -20,3 +20,15 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 110
 }
+
+variable "github_repo" {
+  description = "owner/name of the GitHub repository whose trademind-agent workflow may assume the agent role."
+  type        = string
+  default     = "Shiv53336/Object_de"
+}
+
+variable "create_github_oidc_provider" {
+  description = "Create the GitHub Actions OIDC provider. Set false if the account already has one."
+  type        = bool
+  default     = true
+}
