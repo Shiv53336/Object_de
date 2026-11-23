@@ -87,10 +87,17 @@ docker compose run --rm api trademind report --run-id <id> --by time_bucket
 ### Backups and restore
 `deploy/backup.sh` runs nightly. To restore a day: `./deploy/restore.sh 2026-11-17`. Test a restore once after setup.
 
-### Costs to expect
-- Kite Connect: Rs 500/month.
-- AWS: one t4g.medium, 30 GB gp3, an Elastic IP, small S3 usage. Check the current ap-south-1 price list; a budget alert emails you at 80% of `monthly_budget_usd` (default $110).
-- Bedrock: only once the research layer is enabled (T13), with its own monthly cap.
+### Costs to expect (owner's ceiling: Rs 10,000 a month, all in)
+| Item | Rs / month, approx. |
+|---|---|
+| AWS server: t4g.medium (~$0.0224/hr in ap-south-1), 30 GB gp3, public IP, backups | ~2,400 incl. GST |
+| Kite Connect (real-time and historical data) | 500 + GST |
+| Claude Pro, for the ops agent (docs/AGENT.md) | 2,399 monthly, or 2,000 billed yearly |
+| Bedrock research notes, capped at `research.monthly_budget_usd` ($15) | up to ~1,600 |
+| Bedrock agent fallback, capped at `AGENT_BEDROCK_MONTHLY_USD` ($20) | up to ~2,100 |
+| **Total** | **~9,100** |
+
+The AWS budget alert emails you at 80% of `monthly_budget_usd` (default $60: server plus both Bedrock caps). Claude Max (from Rs 11,999) does not fit the ceiling.
 
 ## 4. AI research notes (optional)
 1. In the Bedrock console (ap-south-1), enable access to an Anthropic Haiku-class and a Sonnet-class model and copy their model or inference-profile ids.
