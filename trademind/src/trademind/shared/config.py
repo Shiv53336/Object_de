@@ -17,6 +17,7 @@ from trademind.shared.enums import ExecutionMode, Segment
 from trademind.shared.exceptions import ConfigError
 
 CONFIG_FILES = ("settings.yaml", "costs.yaml", "strategies.yaml")
+OPTIONAL_CONFIG_FILES = ("corporate_actions.yaml",)
 
 
 class StrictModel(BaseModel):
@@ -117,12 +118,24 @@ class AnalyticsConfig(StrictModel):
 
 class ValidationConfig(StrictModel):
     holdout_start: date
+    holdout_end: date
     bootstrap_resamples: int = 10000
     bootstrap_seed: int = 7
     min_research_trades: int = 100
     max_drawdown_r: float = 15
     min_holdout_trades: int = 30
     max_holdout_evals: int = 2
+    min_session_coverage: float = Field(default=0.9, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _window(self) -> ValidationConfig:
+        if self.holdout_end <= self.holdout_start:
+            raise ValueError("validation.holdout_end must be after holdout_start")
+        return self
+
+    @property
+    def window(self) -> tuple[date, date]:
+        return self.holdout_start, self.holdout_end
 
 
 class ModelPrice(StrictModel):
@@ -240,6 +253,20 @@ class StrategiesConfig(StrictModel):
         return self
 
 
+class CorporateAction(StrictModel):
+    """A split or bonus: prices before `ex_date` are divided by `ratio` (2 for a 1:1 bonus or a
+    2-for-1 split) and volumes multiplied by it, so history is comparable across the event."""
+
+    symbol: str
+    ex_date: date
+    ratio: float = Field(gt=0)
+    note: str = ""
+
+
+class CorporateActionsConfig(StrictModel):
+    actions: list[CorporateAction] = []
+
+
 @dataclass(frozen=True)
 class AppConfig:
     settings: Settings
@@ -247,6 +274,7 @@ class AppConfig:
     strategies: StrategiesConfig
     expiries: dict[str, list[date]]
     config_dir: Path
+    corporate_actions: tuple[CorporateAction, ...] = ()
 
 
 def _read_yaml(path: Path) -> Any:
@@ -261,6 +289,9 @@ def load_config(config_dir: str | Path | None = None) -> AppConfig:
         costs = CostsConfig.model_validate(_read_yaml(cdir / "costs.yaml"))
         strategies = StrategiesConfig.model_validate(_read_yaml(cdir / "strategies.yaml"))
         raw_exp = _read_yaml(cdir / "expiries.yaml") if (cdir / "expiries.yaml").exists() else {}
+        ca_path = cdir / "corporate_actions.yaml"
+        actions = CorporateActionsConfig.model_validate(_read_yaml(ca_path) or {}) if ca_path.exists() \
+            else CorporateActionsConfig()
     except FileNotFoundError as exc:
         raise ConfigError(f"missing config file: {exc.filename}") from exc
     expiries = {str(k): sorted(date.fromisoformat(str(d)) for d in (v or [])) for k, v in raw_exp.items()}
@@ -268,12 +299,13 @@ def load_config(config_dir: str | Path | None = None) -> AppConfig:
     for inst in strategies.instances:
         if tf_minutes(inst.timeframe) % base:
             raise ConfigError(f"{inst.instance_id}: timeframe must be a multiple of the base interval")
-    return AppConfig(settings, costs, strategies, expiries, cdir)
+    return AppConfig(settings, costs, strategies, expiries, cdir, tuple(actions.actions))
 
 
 def config_hash(config_dir: str | Path) -> str:
     h = hashlib.sha256()
-    for name in CONFIG_FILES:
+    present = [n for n in OPTIONAL_CONFIG_FILES if (Path(config_dir) / n).exists()]
+    for name in (*CONFIG_FILES, *present):
         # Line endings normalised, so a Windows checkout hashes like the server's.
         h.update((Path(config_dir) / name).read_bytes().replace(b"\r\n", b"\n"))
     return h.hexdigest()
@@ -282,8 +314,16 @@ def config_hash(config_dir: str | Path) -> str:
 @dataclass(frozen=True)
 class RuntimePaths:
     data_dir: Path
-    bars_dir: Path
+    bars_dir: Path  # exchange candles only: research, validation, live history
     database_url: str
+
+    @property
+    def live_bars_dir(self) -> Path:
+        return self.data_dir / "bars_live"
+
+    @property
+    def synthetic_bars_dir(self) -> Path:
+        return self.data_dir / "bars_synthetic"
 
 
 def runtime_paths() -> RuntimePaths:

@@ -18,19 +18,21 @@ on:
         type: string
         required: false
       model:
-        description: "Bedrock model"
+        description: "Model (subscription alias; mapped to the Bedrock id for the fallback)"
         type: choice
         options: [sonnet, opus]
         default: sonnet
       budget_usd:
-        description: "Spend cap for this run in USD (Claude Code's own estimate)"
+        description: "Run cap in USD (Claude Code's estimate); on Bedrock also limited by the monthly allowance"
         type: string
         default: "3"
 
+# Least privilege per job (2026-11-23 review). Claude runs on the self-hosted machine with a
+# read-only token; its commits travel as a git bundle to GitHub-hosted jobs. `verify` runs the
+# changed code with a read-only token; only `publish` holds write access, and it never executes
+# anything from the agent's changes. The write token never reaches the self-hosted machine.
 permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: trademind-agent
@@ -40,6 +42,8 @@ jobs:
   status:
     if: inputs.mode == 'status'
     runs-on: [self-hosted, trademind]
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -55,6 +59,8 @@ jobs:
   deploy:
     if: inputs.mode == 'deploy'
     runs-on: [self-hosted, trademind]
+    permissions:
+      contents: read
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -71,12 +77,18 @@ jobs:
     if: inputs.mode == 'task'
     runs-on: [self-hosted, trademind]
     timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: trademind
     env:
       BRANCH: agent/${{ github.run_number }}
       TRADEMIND_DATA_DIR: /home/agent/tm-data
+    outputs:
+      claude: ${{ steps.claude.outcome }}
+      changed: ${{ steps.bundle.outputs.changed }}
     steps:
       - uses: actions/checkout@v5
         id: checkout
@@ -91,7 +103,8 @@ jobs:
           git config user.name "TRADEMIND agent"
           git config user.email "agent@trademind.invalid"
 
-      - name: Bedrock credentials (Bedrock-only role, 1 hour)
+      - name: Bedrock credentials for the fallback (Bedrock-only role, 1 hour)
+        if: vars.TRADEMIND_AGENT_ROLE_ARN != '' && vars.AGENT_BEDROCK_MONTHLY_USD != '' && vars.AGENT_BEDROCK_MONTHLY_USD != '0'
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.TRADEMIND_AGENT_ROLE_ARN }}
@@ -111,26 +124,92 @@ jobs:
         env:
           TASK: ${{ inputs.task }}
           BUDGET_USD: ${{ inputs.budget_usd }}
-          MODEL: >-
+          MODEL_ALIAS: ${{ inputs.model }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          AGENT_BEDROCK_MONTHLY_USD: ${{ vars.AGENT_BEDROCK_MONTHLY_USD || '0' }}
+          BEDROCK_MODEL: >-
             ${{ inputs.model == 'opus'
                 && (vars.TRADEMIND_AGENT_OPUS_MODEL || 'global.anthropic.claude-opus-5-5')
                 || (vars.TRADEMIND_AGENT_SONNET_MODEL || 'global.anthropic.claude-sonnet-5-5') }}
           FAST_MODEL: ${{ vars.TRADEMIND_AGENT_FAST_MODEL || 'global.anthropic.claude-sonnet-5-5' }}
         run: deploy/agent/run-task.sh
 
-      - name: Verify (ruff, pytest)
-        id: verify
+      - name: Bundle the agent's commits (data only, no credentials here)
+        id: bundle
         if: always() && steps.checkout.outcome == 'success'
+        run: deploy/agent/bundle.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.checkout.outcome == 'success'
+        with:
+          name: agent-output
+          path: ${{ runner.temp }}/agent-out/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  verify:
+    needs: task
+    if: always() && needs.task.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.checks.outcome }}
+    defaults:
+      run:
+        working-directory: trademind
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: agent-output
+          path: ${{ runner.temp }}/agent-out
+      - name: Check out the agent's commits
+        run: |
+          git fetch "$RUNNER_TEMP/agent-out/agent.bundle" "refs/heads/agent:refs/heads/agent-work"
+          git checkout -q agent-work
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: ruff and pytest on the agent's changes
+        id: checks
         continue-on-error: true
         run: |
+          pip install -q -e ".[dev]"
           ruff check .
           pytest -q
 
-      - name: Push branch and open pull request
-        if: always() && steps.checkout.outcome == 'success'
+  publish:
+    needs: [task, verify]
+    if: always() && needs.task.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    defaults:
+      run:
+        working-directory: trademind
+    env:
+      BRANCH: agent/${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: agent-output
+          path: ${{ runner.temp }}/agent-out
+      - name: Push the branch and open a pull request (nothing from the bundle is executed)
         env:
           GH_TOKEN: ${{ github.token }}
           TASK: ${{ inputs.task }}
-          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
-          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          CLAUDE_OUTCOME: ${{ needs.task.outputs.claude }}
+          VERIFY_OUTCOME: ${{ needs.verify.outputs.result || 'not run' }}
         run: deploy/agent/publish.sh

@@ -1,2 +1,3 @@
 alert_email        = "you@example.com"
-monthly_budget_usd = 110
+monthly_budget_usd = 45
+agent_bedrock_monthly_usd = 0   # Bedrock fallback for the ops agent; 0 = no access

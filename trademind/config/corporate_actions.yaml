@@ -1,0 +1,6 @@
+# Splits and bonus issues for universe stocks. Kite's candles may not be adjusted for them, which
+# would show up as a fake 50% gap in history. `trademind data validate` flags any overnight jump
+# above 20%; when it is a real split or bonus, list it here and the data is adjusted on read:
+# prices before ex_date are divided by ratio, volumes multiplied by it.
+#   - {symbol: RELIANCE, ex_date: "2024-10-28", ratio: 2, note: "1:1 bonus"}
+actions: []

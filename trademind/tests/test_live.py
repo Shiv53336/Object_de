@@ -89,7 +89,8 @@ def _backtest(cfg, src, tmp_path):
 
 def _live(cfg, src, store, tmp_path, backfill_minutes: int = 0):
     j = Journal(f"sqlite:///{tmp_path / 'live.sqlite'}")
-    runner = LivePaperRunner(cfg, store, j, _instances(), DAY, grace_seconds=5)
+    runner = LivePaperRunner(cfg, store, j, _instances(), DAY, grace_seconds=5,
+                             live_store=ParquetStore(tmp_path / "bars_live"))
     syms = list(runner._today)
     day_bars = {s: src.get_bars(s, "1minute", DAY, DAY) for s in syms}
     stamps = session_grid(DAY, cfg.settings.session.open, cfg.settings.session.close, 1)
@@ -123,8 +124,9 @@ def test_live_replay_matches_backtest(small_cfg, market, tmp_path) -> None:
     assert len(bt_trades) >= 5 and (bt_trades["exit_reason"] == "STOP").any()
     _same(bt_trades, lv_trades, KEY, ["instance_id", "symbol", "entry_ts"])
     _same(bt_sigs, lv_sigs, SIG_KEY, ["instance_id", "symbol", "ts"])
-    # today's bars were persisted for tomorrow's history
-    assert len(store.read("AAA", "1minute", DAY, DAY)) == 375
+    # today's tick-built bars go to the live store, never into the research store
+    assert len(runner.live_store.read("AAA", "1minute", DAY, DAY)) == 375
+    assert store.read("AAA", "1minute", DAY, DAY).empty
 
 
 def test_late_start_with_backfill_matches_backtest(small_cfg, market, tmp_path) -> None:
@@ -145,9 +147,13 @@ def test_convert_tick() -> None:
     m = {256265: "NIFTY 50", 738561: "RELIANCE"}
     t = convert_tick({"instrument_token": 738561, "last_price": 2500.5, "volume_traded": 1200,
                       "exchange_timestamp": datetime(2025, 9, 3, 10, 0, 5)}, m, received)
-    assert t == ("RELIANCE", pd.Timestamp("2025-09-03 10:00:05", tz=IST), 2500.5, 1200)
+    assert t == ("RELIANCE", pd.Timestamp("2025-09-03 10:00:05", tz=IST), 2500.5, 1200, None, None)
     idx = convert_tick({"instrument_token": 256265, "last_price": 24000.0}, m, received)
-    assert idx == ("NIFTY 50", received, 24000.0, None)
+    assert idx == ("NIFTY 50", received, 24000.0, None, None, None)
+    full = convert_tick({"instrument_token": 738561, "last_price": 2500.5,
+                         "depth": {"buy": [{"price": 2500.4, "quantity": 10}],
+                                   "sell": [{"price": 2500.6, "quantity": 7}]}}, m, received)
+    assert full[-2:] == (2500.4, 2500.6)
     assert convert_tick({"instrument_token": 1, "last_price": 1.0}, m, received) is None
 
 

@@ -6,6 +6,8 @@ Three comparisons, each answering a different question:
 2. Replay on live bars. A backtest of the same day on the bars the live run saw. Live and backtest share
    EngineSession, so this must match exactly; any difference is an engine, timing or data-loading bug.
 3. Replay on Kite candles. How much the day's result depends on tick-aggregation noise.
+4. Execution drift. The fill model (next bar open plus fixed slippage) against the best bid/ask the
+   live feed showed at that minute: what real fills would have cost beyond the model.
 
 Replays run against a throwaway journal: they are never stored and never logged as trials, and they
 only cover a day that already has a finished live run (DECISIONS D27).
@@ -132,6 +134,52 @@ def compare_trades(live: pd.DataFrame, replay: pd.DataFrame, price_tol: float = 
     return out
 
 
+@dataclass
+class Drift:
+    trades: int = 0
+    with_quotes: int = 0
+    mean_r: float = 0.0
+    mean_bps: float = 0.0
+    total_rupees: float = 0.0
+    worst: list[dict] = field(default_factory=list)
+
+
+def execution_drift(trades: pd.DataFrame, quotes: pd.DataFrame) -> Drift:
+    """Cost of trading at the quoted bid/ask instead of the modelled fill, entry plus exit.
+    Positive means real fills would have been worse than the model. Uses the first quote of the
+    fill minute, so a fast stop-out can be worse still."""
+    out = Drift(trades=len(trades))
+    if trades.empty or quotes.empty:
+        return out
+    q = quotes.copy()
+    q["ts"] = pd.to_datetime(q["ts"], utc=True)
+    q = q.set_index(["symbol", "ts"])
+    rows = []
+    for _, t in trades.iterrows():
+        sign = 1.0 if str(t["side"]) == "LONG" else -1.0
+        entry_key = (t["symbol"], pd.Timestamp(t["entry_ts"]).tz_convert("UTC").floor("1min"))
+        exit_key = (t["symbol"], pd.Timestamp(t["exit_ts"]).tz_convert("UTC").floor("1min"))
+        if entry_key not in q.index or exit_key not in q.index:
+            continue
+        e, x = q.loc[entry_key], q.loc[exit_key]
+        entry_quote = e["first_ask"] if sign > 0 else e["first_bid"]
+        exit_quote = x["first_bid"] if sign > 0 else x["first_ask"]
+        if pd.isna(entry_quote) or pd.isna(exit_quote):
+            continue
+        per_unit = sign * (entry_quote - t["entry_price"]) + sign * (t["exit_price"] - exit_quote)
+        rows.append({"instance_id": t["instance_id"], "symbol": t["symbol"],
+                     "entry_ts": pd.Timestamp(t["entry_ts"]).isoformat(),
+                     "r": per_unit / t["risk_per_unit"] if t["risk_per_unit"] else 0.0,
+                     "bps": per_unit / t["entry_price"] * 1e4, "rupees": per_unit * t["qty"]})
+    if rows:
+        df = pd.DataFrame(rows)
+        out.with_quotes = len(df)
+        out.mean_r, out.mean_bps = float(df["r"].mean()), float(df["bps"].mean())
+        out.total_rupees = float(df["rupees"].sum())
+        out.worst = df.sort_values("r", ascending=False).head(3).to_dict("records")
+    return out
+
+
 class OverlaySource:
     """Stored bars, with some symbols' rows for one day replaced (Kite candles for a live day)."""
 
@@ -171,7 +219,7 @@ def _money(x: float) -> str:
 
 
 def render(day: date, run_id: str, bars: list[BarDiff], on_live: TradeDiff,
-           on_official: TradeDiff | None, notes: list[str]) -> str:
+           on_official: TradeDiff | None, notes: list[str], drift: Drift | None = None) -> str:
     lines = [f"# Paper check {day} (live run {run_id})", ""]
     lines += ["## 1. Bars: live ticks vs Kite candles", ""]
     if bars:
@@ -198,6 +246,16 @@ def render(day: date, run_id: str, bars: list[BarDiff], on_live: TradeDiff,
         lines += _trade_section(on_official)
         lines.append("Differences here are expected when bars differ; large P&L swings mean the strategies "
                      "are sensitive to small data differences.")
+    lines += ["", "## 4. Execution drift (fill model vs quoted bid/ask)", ""]
+    if drift is None or not drift.with_quotes:
+        lines.append("No quotes recorded for this run's trades (the feed sends them in full mode).")
+    else:
+        lines.append(f"{drift.with_quotes} of {drift.trades} trades had quotes. Real fills at the quote "
+                     f"would have cost {drift.mean_r:+.3f}R ({drift.mean_bps:+.1f} bps) per trade more "
+                     f"than the model, {_money(drift.total_rupees)} in total. Positive means the model is "
+                     "too kind.")
+        for w in drift.worst:
+            lines.append(f"- {w['instance_id']} {w['symbol']} {w['entry_ts']}: {w['r']:+.3f}R")
     if notes:
         lines += ["", "## Notes", ""] + [f"- {n}" for n in notes]
     return "\n".join(lines) + "\n"

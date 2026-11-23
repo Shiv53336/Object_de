@@ -16,9 +16,13 @@ variable "alert_email" {
 }
 
 variable "monthly_budget_usd" {
-  description = "Monthly AWS budget; alert at 80% of forecast. Blueprint ceiling is about Rs 10,000."
+  description = <<-EOT
+    Monthly AWS budget; alert at 80% of forecast. The owner's ceiling is Rs 10,000 a month for everything
+    (AWS, Claude plan, Kite Connect), so AWS gets about $45: server ~$23, Bedrock research notes $15,
+    and the agent's Bedrock fallback, which is off by default (docs/AGENT.md).
+  EOT
   type        = number
-  default     = 110
+  default     = 45
 }
 
 variable "github_repo" {
@@ -31,4 +35,16 @@ variable "create_github_oidc_provider" {
   description = "Create the GitHub Actions OIDC provider. Set false if the account already has one."
   type        = bool
   default     = true
+}
+
+variable "agent_bedrock_monthly_usd" {
+  description = "Bedrock fallback for the ops agent, USD per month. 0 (default) gives the agent role no Bedrock access."
+  type        = number
+  default     = 0
+}
+
+variable "research_bedrock_monthly_usd" {
+  description = "The research notes' own Bedrock cap (settings.yaml research.monthly_budget_usd)."
+  type        = number
+  default     = 15
 }

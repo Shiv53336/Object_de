@@ -42,6 +42,16 @@ class BarAggregator:
         if last_bar_ts is not None:
             self._last_done[symbol] = last_bar_ts
 
+    def resume(self, symbol: str, last_bar_ts: pd.Timestamp, added_volume: int) -> None:
+        """After minutes were filled from candles: forget any partial bar at or before the last filled
+        minute and move the volume baseline past the filled volume."""
+        cur = self._cur.get(symbol)
+        if cur is not None and cur.ts <= last_bar_ts:
+            del self._cur[symbol]
+        self._prev_cum[symbol] = self._prev_cum.get(symbol, 0) + max(0, int(added_volume))
+        done = self._last_done.get(symbol)
+        self._last_done[symbol] = last_bar_ts if done is None else max(done, last_bar_ts)
+
     def _bucket(self, ts: pd.Timestamp) -> pd.Timestamp | None:
         o = self.session.open
         day_open = ts.normalize() + pd.Timedelta(hours=o.hour, minutes=o.minute)

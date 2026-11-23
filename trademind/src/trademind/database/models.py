@@ -38,10 +38,15 @@ runs = Table(
     Column("instances", JSON, nullable=False),
     Column("started_at", DateTime(timezone=True), nullable=False),
     Column("finished_at", DateTime(timezone=True)),
-    Column("status", String(16), nullable=False),  # running | done | failed
+    # running | done | failed; live paper also: stopped (Ctrl+C) | crashed | superseded
+    Column("status", String(16), nullable=False),
     Column("n_signals", Integer),
     Column("n_trades", Integer),
     Column("notes", Text, nullable=False, default=""),
+    # What was actually simulated, not just requested (revision 0002).
+    Column("n_sessions", Integer),
+    Column("first_session", Date),
+    Column("last_session", Date),
 )
 
 signals = Table(
@@ -152,4 +157,18 @@ research_notes = Table(
     Column("period_end", Date, nullable=False),
     Column("model", String(128), nullable=False),
     Column("content", JSON, nullable=False),
+)
+
+# Best bid/ask seen by the live feed, per symbol and minute (revision 0002): the first quote in the
+# minute (fills at the bar open) and the last (signals at the bar close). Measures execution drift.
+quotes = Table(
+    "quotes",
+    metadata,
+    Column("run_id", String(64), ForeignKey("runs.run_id"), primary_key=True),
+    Column("symbol", String(64), primary_key=True),
+    Column("ts", DateTime(timezone=True), primary_key=True),
+    Column("first_bid", Float),
+    Column("first_ask", Float),
+    Column("last_bid", Float),
+    Column("last_ask", Float),
 )

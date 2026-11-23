@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine, func, insert, select, update
+from sqlalchemy import create_engine, func, insert, inspect, select, update
 from sqlalchemy.engine import Engine
 
 from trademind.database import models as m
@@ -70,12 +70,52 @@ def _ensure_sqlite_dir(url: str) -> None:
         Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
 
 
+MIGRATIONS = Path(__file__).with_name("migrations")
+BASELINE = "0001"  # the schema databases had before migrations existed (T06)
+
+
+def _alembic_config(connection: Any) -> Any:
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option("script_location", str(MIGRATIONS))
+    cfg.attributes["connection"] = connection
+    return cfg
+
+
+def migrate(engine: Engine) -> str:
+    """Bring the schema to the latest revision (T06). Returns what was done.
+
+    New database: create everything and mark it current. A database from before migrations
+    existed: mark it as the baseline, then upgrade. Otherwise: upgrade (a no-op when current).
+    """
+    from alembic import command
+    from alembic.runtime.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(_alembic_config(None)).get_current_head()
+    with engine.begin() as cx:
+        tables = set(inspect(cx).get_table_names())
+        current = MigrationContext.configure(cx).get_current_revision()
+        if current == head:
+            return "current"
+        cfg = _alembic_config(cx)
+        if current is None and "runs" not in tables:
+            m.metadata.create_all(cx)
+            command.stamp(cfg, "head")
+            return "created"
+        if current is None:
+            command.stamp(cfg, BASELINE)
+        command.upgrade(cfg, "head")
+        return "upgraded"
+
+
 class Journal:
     def __init__(self, url: str) -> None:
         _ensure_sqlite_dir(url)
         self.url = url
         self.engine: Engine = create_engine(url, future=True)
-        m.metadata.create_all(self.engine)
+        migrate(self.engine)
 
     # ---- writes ------------------------------------------------------------------------
     def start_run(
@@ -110,18 +150,41 @@ class Journal:
             )
         return run_id
 
-    def finish_run(self, run_id: str, *, status: str, n_signals: int, n_trades: int) -> None:
+    def finish_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        n_signals: int,
+        n_trades: int,
+        sessions: list[date] | None = None,
+        notes: str | None = None,
+    ) -> None:
+        values: dict[str, Any] = {"status": status, "finished_at": datetime.now(UTC),
+                                  "n_signals": n_signals, "n_trades": n_trades}
+        if sessions is not None:
+            values |= {"n_sessions": len(sessions), "first_session": min(sessions, default=None),
+                       "last_session": max(sessions, default=None)}
+        if notes is not None:
+            values["notes"] = notes
         with self.engine.begin() as cx:
-            cx.execute(
-                update(m.runs)
-                .where(m.runs.c.run_id == run_id)
-                .values(
-                    status=status,
-                    finished_at=datetime.now(UTC),
-                    n_signals=n_signals,
-                    n_trades=n_trades,
-                )
-            )
+            cx.execute(update(m.runs).where(m.runs.c.run_id == run_id).values(**values))
+
+    def set_run_status(self, run_ids: Iterable[str], status: str) -> None:
+        ids = list(run_ids)
+        if ids:
+            with self.engine.begin() as cx:
+                cx.execute(update(m.runs).where(m.runs.c.run_id.in_(ids)).values(status=status))
+
+    def log_quotes(self, run_id: str, rows: Iterable[dict]) -> None:
+        rows = [{**r, "run_id": run_id, "ts": to_utc(r["ts"])} for r in rows]
+        if rows:
+            with self.engine.begin() as cx:
+                cx.execute(insert(m.quotes), rows)
+
+    def read_quotes(self, run_id: str) -> pd.DataFrame:
+        return self._frame(select(m.quotes).where(m.quotes.c.run_id == run_id)
+                           .order_by(m.quotes.c.symbol, m.quotes.c.ts))
 
     def log_signals(self, rows: Iterable[dict]) -> None:
         rows = [
@@ -245,27 +308,29 @@ class Journal:
         stmt = select(m.signals).where(m.signals.c.run_id == run_id)
         return self._frame(stmt.order_by(m.signals.c.ts, m.signals.c.signal_id))
 
-    def count_trials(self, strategy_id: str, data_split: str) -> int:
+    def find_research_run(self, instance_id: str, strategy_version: str, params_hash_: str,
+                          config_hash_: str, sources: frozenset[str]) -> dict | None:
+        """Latest finished research run on real data, with the current config, that tested this exact
+        version and parameter set of the instance. None if there is none."""
         stmt = (
-            select(func.count())
-            .select_from(m.trials)
-            .where(m.trials.c.strategy_id == strategy_id, m.trials.c.data_split == data_split)
+            select(m.runs)
+            .where(m.runs.c.data_split == "research", m.runs.c.status == "done",
+                   m.runs.c.config_hash == config_hash_, m.runs.c.source.in_(sorted(sources)))
+            .order_by(m.runs.c.started_at.desc())
         )
         with self.engine.connect() as cx:
-            return int(cx.execute(stmt).scalar_one())
-
-    def count_holdout_evals(self, instance_id: str, strategy_version: str) -> int:
-        stmt = (
-            select(func.count())
-            .select_from(m.trials)
-            .where(
-                m.trials.c.instance_id == instance_id,
-                m.trials.c.strategy_version == strategy_version,
-                m.trials.c.data_split == "holdout",
-            )
-        )
-        with self.engine.connect() as cx:
-            return int(cx.execute(stmt).scalar_one())
+            for run in cx.execute(stmt).mappings():
+                if instance_id not in (run["instances"] or []):
+                    continue
+                trial = cx.execute(
+                    select(func.count()).select_from(m.trials).where(
+                        m.trials.c.run_id == run["run_id"], m.trials.c.instance_id == instance_id,
+                        m.trials.c.strategy_version == strategy_version,
+                        m.trials.c.params_hash == params_hash_)
+                ).scalar_one()
+                if trial:
+                    return dict(run)
+        return None
 
     def latest_run(self, instance_id: str, data_split: str) -> str | None:
         """Most recent finished run of the given split that included the instance."""
@@ -307,6 +372,12 @@ class Journal:
             m.runs.c.data_split == data_split, m.runs.c.status == "done",
             m.runs.c.period_start >= start, m.runs.c.period_end <= end)
         return self._frame(stmt.order_by(m.runs.c.period_start))
+
+    def runs_on(self, day: date, data_split: str) -> pd.DataFrame:
+        """Every run of the split covering exactly this day, whatever its status."""
+        stmt = select(m.runs).where(m.runs.c.data_split == data_split, m.runs.c.period_start == day,
+                                    m.runs.c.period_end == day)
+        return self._frame(stmt.order_by(m.runs.c.started_at))
 
     def ping(self) -> bool:
         with self.engine.connect() as cx:
