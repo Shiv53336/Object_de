@@ -133,7 +133,7 @@ def test_notice_escapes_and_truncates():
 
 
 def _write(path: Path, events: list[dict]) -> str:
-    path.write_text("\n".join(json.dumps(e) for e in events))
+    path.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
     return str(path)
 
 
@@ -153,7 +153,7 @@ def test_limit_hit_only_when_a_failed_run_mentions_the_limit(tmp_path):
 
 def test_bedrock_ledger_sums_only_this_month(tmp_path):
     ledger = tmp_path / "spend.csv"
-    ledger.write_text("2000-01-05T10:00:00Z,9.0000\nbad line\n")
+    ledger.write_text("2000-01-05T10:00:00Z,9.0000\nbad line\n", encoding="utf-8")
     _agentlog("spend-add", str(ledger), _write(tmp_path / "t.jsonl", [
         {"type": "result", "subtype": "success", "total_cost_usd": 1.25}]), "3")
     _agentlog("spend-add", str(ledger), str(tmp_path / "missing.jsonl"), "2")
@@ -161,7 +161,7 @@ def test_bedrock_ledger_sums_only_this_month(tmp_path):
 
 
 def test_workflow_passes_plan_token_only_to_claude():
-    task = yaml.safe_load(WORKFLOW.read_text())["jobs"]["task"]
+    task = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["task"]
     with_token = [s.get("name") for s in task["steps"] if "CLAUDE_CODE_OAUTH_TOKEN" in json.dumps(s)]
     assert with_token == ["Claude Code"]
     aws = next(s for s in task["steps"] if "configure-aws-credentials" in str(s.get("uses", "")))
@@ -177,14 +177,14 @@ def test_publish_refuses_a_diff_with_a_credential(tmp_path):
         subprocess.run(["git", *args], cwd=tmp_path, env=git_env, check=True, capture_output=True)
 
     git("init", "-q")
-    (tmp_path / "a.txt").write_text("hello\n")
+    (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
     git("add", ".")
     git("commit", "-qm", "base")
     git("update-ref", "refs/remotes/origin/main", "HEAD")
-    (tmp_path / "a.txt").write_text("hello\ntoken = sk-ant-oat01-abcdefghijklmnop\n")
+    (tmp_path / "a.txt").write_text("hello\ntoken = sk-ant-oat01-abcdefghijklmnop\n", encoding="utf-8")
     git("commit", "-qam", "leak")
     env = {**git_env, "BRANCH": "agent/1", "RUNNER_TEMP": str(tmp_path), "GH_TOKEN": "x"}
     out = subprocess.run(["bash", str(AGENT / "publish.sh")], env=env, cwd=tmp_path,
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, encoding="utf-8")
     assert out.returncode == 1
     assert "looks like a credential" in out.stderr

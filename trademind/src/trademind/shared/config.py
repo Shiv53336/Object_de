@@ -117,12 +117,24 @@ class AnalyticsConfig(StrictModel):
 
 class ValidationConfig(StrictModel):
     holdout_start: date
+    holdout_end: date
     bootstrap_resamples: int = 10000
     bootstrap_seed: int = 7
     min_research_trades: int = 100
     max_drawdown_r: float = 15
     min_holdout_trades: int = 30
     max_holdout_evals: int = 2
+    min_session_coverage: float = Field(default=0.9, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _window(self) -> ValidationConfig:
+        if self.holdout_end <= self.holdout_start:
+            raise ValueError("validation.holdout_end must be after holdout_start")
+        return self
+
+    @property
+    def window(self) -> tuple[date, date]:
+        return self.holdout_start, self.holdout_end
 
 
 class ModelPrice(StrictModel):

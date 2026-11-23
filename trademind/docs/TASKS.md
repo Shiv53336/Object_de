@@ -40,7 +40,7 @@ The research core is built and tested (see "Done"). The cards below are the rema
 | T03 | Strategy: intraday_contraction | small | done |
 | T04 | Strategy: first_half_hour_momentum | small | done |
 | T05 | Validation and promotion gate | small | done |
-| T06 | Alembic migrations | small | todo |
+| T06 | Alembic migrations | small | done (`database/migrations/`, automatic on start) |
 | T07 | Kite read-only gateway, login, instruments, history download | small | done |
 | T08 | Tick-to-bar aggregator | small | done |
 | T09 | Live paper runner | design first | done (`docs/design/T09-live-paper.md`) |

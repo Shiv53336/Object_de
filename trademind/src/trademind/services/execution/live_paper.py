@@ -37,7 +37,7 @@ from trademind.services.strategy_engine.base import Strategy
 from trademind.services.strategy_engine.view import DayFrames
 from trademind.shared.clock import session_grid
 from trademind.shared.config import AppConfig, config_hash
-from trademind.shared.exceptions import DataError
+from trademind.shared.exceptions import DataError, HoldoutAccessError
 from trademind.shared.models import Instrument
 
 log = logging.getLogger(__name__)
@@ -60,6 +60,10 @@ class LivePaperRunner:
         grace_seconds: float = 5.0,
     ) -> None:
         s = cfg.settings
+        v = s.validation
+        if v.holdout_start <= day <= v.holdout_end:
+            raise HoldoutAccessError(f"{day} is inside the holdout window {v.holdout_start}.."
+                                     f"{v.holdout_end}; live paper results there would leak into it")
         self.cfg, self.day, self.session = cfg, day, s.session
         self.interval = s.session.base_interval
         self.base_td = pd.Timedelta(minutes=s.session.base_minutes)

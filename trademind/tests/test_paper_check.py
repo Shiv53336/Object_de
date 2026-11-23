@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date, timedelta
 
 import pandas as pd
@@ -80,6 +81,14 @@ def test_overlay_replaces_only_the_chosen_day(tmp_path) -> None:
 
 
 @pytest.fixture(scope="module")
+def replay_cfg(small_cfg):
+    """Replays may only touch days after the holdout window, so move the window before DAY."""
+    s = small_cfg.settings
+    v = s.validation.model_copy(update={"holdout_start": date(2025, 6, 2), "holdout_end": date(2025, 8, 29)})
+    return dataclasses.replace(small_cfg, settings=s.model_copy(update={"validation": v}))
+
+
+@pytest.fixture(scope="module")
 def live_day(small_cfg, tmp_path_factory):
     """A live paper day driven by ticks (as in test_live), with its bars persisted to the store."""
     s = small_cfg.settings
@@ -92,20 +101,28 @@ def live_day(small_cfg, tmp_path_factory):
     return src, store, trades
 
 
-def test_replay_on_live_bars_matches_the_live_run(small_cfg, live_day) -> None:
+def test_replay_on_live_bars_matches_the_live_run(replay_cfg, live_day) -> None:
     _, store, live_trades = live_day
-    replay = replay_day(small_cfg, store, DAY, strategies=_instances())
+    replay = replay_day(replay_cfg, store, DAY, strategies=_instances())
     d = compare_trades(live_trades, replay)
     assert len(live_trades) >= 5
     assert d.exact and d.matched == len(live_trades)
     assert "Verdict: PASS" in render(DAY, "run1", [], d, None, [])
 
 
-def test_replay_on_different_bars_shows_differences(small_cfg, live_day) -> None:
+def test_replay_on_different_bars_shows_differences(replay_cfg, live_day) -> None:
     src, store, live_trades = live_day
     shifted = src.get_bars("AAA", "1minute", DAY, DAY)
     shifted[["open", "high", "low", "close"]] *= 1.004
-    replay = replay_day(small_cfg, OverlaySource(store, DAY, {"AAA": shifted}), DAY, strategies=_instances())
+    replay = replay_day(replay_cfg, OverlaySource(store, DAY, {"AAA": shifted}), DAY, strategies=_instances())
     d = compare_trades(live_trades, replay)
     assert not d.exact
     assert "Verdict: FAIL" in render(DAY, "run1", [], d, d, [])
+
+
+def test_replay_refuses_days_inside_the_holdout(small_cfg, live_day) -> None:
+    from trademind.shared.exceptions import HoldoutAccessError
+
+    _, store, _ = live_day
+    with pytest.raises(HoldoutAccessError):
+        replay_day(small_cfg, store, date(2026, 6, 1), strategies=_instances())

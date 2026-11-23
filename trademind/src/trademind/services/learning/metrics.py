@@ -11,6 +11,8 @@ COLUMNS = [
     "n_trades",
     "win_rate",
     "expectancy_r",
+    "gross_expectancy_r",
+    "cost_per_trade_r",
     "profit_factor",
     "max_drawdown_r",
     "avg_win_r",
@@ -52,6 +54,14 @@ def compute_metrics(trades: pd.DataFrame, min_trades: int) -> dict:
     out["profit_factor"] = (
         float(gains / losses) if losses > 0 else (math.inf if gains > 0 else math.nan)
     )
+    if "risk_per_unit" in df and "qty" in df:
+        # 1R in rupees for each trade. Gross P&L already includes modelled slippage; costs are the
+        # Zerodha charges. An edge must clear cost_per_trade_r with room to spare.
+        risk = (df["risk_per_unit"].to_numpy(dtype=float) * df["qty"].to_numpy(dtype=float))
+        ok = risk > 0
+        if ok.any():
+            out["gross_expectancy_r"] = float((gross[ok] / risk[ok]).mean())
+            out["cost_per_trade_r"] = float((df["costs"].to_numpy(dtype=float)[ok] / risk[ok]).mean())
     out["max_drawdown_r"] = max_drawdown(r)
     out["total_net_pnl"] = float(net.sum())
     out["total_costs"] = float(df["costs"].sum())
@@ -65,12 +75,19 @@ def compute_metrics(trades: pd.DataFrame, min_trades: int) -> dict:
     return out
 
 
+PERIODS = {"year": "Y", "quarter": "Q"}
+
+
 def scoreboard(trades: pd.DataFrame, min_trades: int, by: str | None = None) -> pd.DataFrame:
+    """Per instance; `by` adds a context tag, or `year` / `quarter` of entry (stability over time)."""
     keys = ["instance_id"] + ([by] if by else [])
     if trades.empty:
         return pd.DataFrame(columns=keys + COLUMNS)
     df = trades.copy()
-    if by:
+    if by in PERIODS:
+        entry = pd.to_datetime(df["entry_ts"], utc=True).dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+        df[by] = entry.dt.to_period(PERIODS[by]).astype(str)
+    elif by:
         df[by] = df["context"].map(lambda c: str((c or {}).get(by, "unknown")))
     rows = []
     for key, grp in df.groupby(keys, sort=True):

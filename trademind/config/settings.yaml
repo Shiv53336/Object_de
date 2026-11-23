@@ -52,13 +52,17 @@ analytics:
   min_trades: 100
 
 validation:
-  holdout_start: "2026-05-01"    # research runs may not read on or after this date
+  # The holdout is a fixed window (DECISIONS D29). Research runs end before it; days after it are
+  # forward data (live paper). Looks are budgeted per strategy in ledger/holdout_looks.jsonl.
+  holdout_start: "2026-05-01"
+  holdout_end: "2026-10-31"
+  min_session_coverage: 0.9      # share of weekdays a research or holdout run must actually cover
   bootstrap_resamples: 10000
   bootstrap_seed: 7
   min_research_trades: 100
   max_drawdown_r: 15
   min_holdout_trades: 30
-  max_holdout_evals: 2
+  max_holdout_evals: 2           # per strategy per window, across all versions and timeframes
 
 execution:
   mode: PAPER                    # the only mode this version accepts

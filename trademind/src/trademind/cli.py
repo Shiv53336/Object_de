@@ -5,16 +5,16 @@ from __future__ import annotations
 import os
 import time
 import webbrowser
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 import pandas as pd
 import typer
 import yaml
 
 from trademind import __version__
-from trademind.database.journal import Journal
+from trademind.database.journal import Journal, migrate, params_hash
 from trademind.services.ai_research.review import daily_postmortem, make_llm, telegram_text, weekly_review
 from trademind.services.backtesting.runner import run_backtest
 from trademind.services.broker_gateway.kite import (
@@ -34,8 +34,15 @@ from trademind.services.execution.paper_check import (
     replay_day,
 )
 from trademind.services.instrument_registry.registry import build_instruments
+from trademind.services.learning.ledger import (
+    REAL_SOURCES,
+    Hypothesis,
+    LedgerError,
+    ResearchLedger,
+    ledger_dir,
+)
 from trademind.services.learning.metrics import scoreboard, to_markdown
-from trademind.services.learning.validation import format_report, promotion_report
+from trademind.services.learning.validation import format_report, promotion_report, session_coverage
 from trademind.services.market_data.source import DataSource, validate_bars
 from trademind.services.market_data.store import CsvSource, ParquetStore
 from trademind.services.market_data.synthetic import SyntheticSource
@@ -43,7 +50,7 @@ from trademind.services.notify.telegram import TOKEN_RE, Notifier
 from trademind.services.ops import preflight as pf
 from trademind.services.strategy_engine.registry import available, build_instances
 from trademind.shared.clock import IST, at
-from trademind.shared.config import AppConfig, load_config, runtime_paths
+from trademind.shared.config import AppConfig, config_hash, load_config, runtime_paths
 from trademind.shared.dotenv import load_env_file
 from trademind.shared.exceptions import TrademindError
 from trademind.shared.logging import setup_logging
@@ -52,9 +59,11 @@ from trademind.shared.power import keep_awake, on_battery
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="TRADEMIND (paper trading only)")
 data_app = typer.Typer(no_args_is_help=True, help="Market data tools")
 paper_app = typer.Typer(no_args_is_help=True, help="Live paper trading (simulated fills only)")
+db_app = typer.Typer(help="Journal database (T06)", no_args_is_help=True)
 research_app = typer.Typer(no_args_is_help=True, help="AI research notes (advisory only)")
 app.add_typer(data_app, name="data")
 app.add_typer(paper_app, name="paper")
+app.add_typer(db_app, name="db")
 app.add_typer(research_app, name="research")
 
 ConfigDir = Annotated[Path | None, typer.Option(help="Config directory (default: ./config)")]
@@ -157,10 +166,14 @@ def backtest(
     seed: Annotated[int, typer.Option(help="Seed for synthetic data")] = 7,
     csv_root: Annotated[Path | None, typer.Option(help="Root folder for --source csv")] = None,
     instances: Annotated[str | None, typer.Option(help="Comma list, e.g. orb_momentum@5minute")] = None,
-    by: Annotated[str | None, typer.Option(help="Also break the scoreboard down by a context tag")] = None,
+    by: Annotated[str | None, typer.Option(help="Break down by a context tag, or year | quarter")] = None,
+    split: Annotated[str, typer.Option(help="research (before the holdout) | forward (after)")] = "research",
     config_dir: ConfigDir = None,
 ) -> None:
-    """Run a research backtest and print the scoreboard."""
+    """Run a backtest and print the scoreboard. Holdout data is reachable only through `validate`."""
+    if split not in ("research", "forward"):
+        typer.echo("error: --split must be research or forward", err=True)
+        raise typer.Exit(2)
     cfg = load_config(config_dir)
     only = {x.strip() for x in instances.split(",")} if instances else None
     journal = Journal(runtime_paths().database_url)
@@ -176,6 +189,7 @@ def backtest(
             _date(start),
             _date(end),
             journal,
+            data_split=split,
             only=only,
             source_name=source,
             progress=progress,
@@ -191,39 +205,79 @@ def backtest(
 @app.command()
 def validate(
     instance: Annotated[str, typer.Option(help="Strategy instance, e.g. orb_momentum@5minute")],
-    start: Annotated[str, typer.Option(help="First holdout session (>= validation.holdout_start)")],
-    end: Annotated[str, typer.Option(help="Last holdout session")],
-    source: Source = "synthetic",
-    seed: Annotated[int, typer.Option(help="Seed for synthetic data")] = 7,
+    source: Annotated[str, typer.Option(help="Real data only: parquet | csv | kite")],
+    start: Annotated[str | None, typer.Option(help="First holdout session (default: window start)")] = None,
+    end: Annotated[str | None, typer.Option(help="Last holdout session (default: window end)")] = None,
     csv_root: Annotated[Path | None, typer.Option(help="Root folder for --source csv")] = None,
     config_dir: ConfigDir = None,
 ) -> None:
-    """Out-of-sample check and promotion gate (PLAN 9.3). The only command that reads holdout data."""
+    """Out-of-sample check and promotion gate (PLAN 9.3, DECISIONS D29). The only command that
+    reads holdout data. Every check that can refuse runs before any holdout data is read."""
     cfg = load_config(config_dir)
     v = cfg.settings.validation
-    journal = Journal(runtime_paths().database_url)
+    window = v.window
+    first, last = (_date(start) if start else window[0]), (_date(end) if end else window[1])
+
+    def refuse(msg: str) -> NoReturn:
+        typer.echo(f"error: {msg}", err=True)
+        raise typer.Exit(2)
+
+    if source not in REAL_SOURCES:
+        refuse("the holdout needs real market data: pass --source parquet (or csv, kite)")
+    if first < window[0] or last > window[1] or first > last:
+        refuse(f"holdout sessions must lie within the fixed window {window[0]}..{window[1]}")
     try:
         (strat,) = build_instances(cfg.strategies, {instance})
     except TrademindError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    used = journal.count_holdout_evals(instance, strat.version)
-    if used >= v.max_holdout_evals:
-        typer.echo(f"error: {instance} v{strat.version} has used its {v.max_holdout_evals} holdout "
-                   "evaluations. Change the strategy (new version) before looking again.", err=True)
-        raise typer.Exit(2)
-    research = journal.latest_run(instance, "research")
-    if research is None:
-        typer.echo(f"error: no finished research backtest includes {instance}; run `trademind backtest` "
-                   "first", err=True)
-        raise typer.Exit(2)
+        refuse(str(exc))
+    hyp = Hypothesis(strat.id, strat.version, strat.timeframe,
+                     params_hash(strat.params.model_dump(mode="json")))
+    ledger = ResearchLedger(ledger_dir(cfg))
     try:
-        holdout = run_backtest(cfg, _source(cfg, source, seed, csv_root), _date(start), _date(end), journal,
-                               data_split="holdout", only={instance}, source_name=source)
+        if ledger.uncommitted():
+            refuse(f"the research ledger ({ledger.root}) has uncommitted changes; commit it first "
+                   "so no holdout look can be lost: git add ledger && git commit -m ledger")
+        looks = ledger.looks(strat.id, window)
+        research_trials = ledger.distinct_hypotheses()
+    except LedgerError as exc:
+        refuse(str(exc))
+    if len(looks) >= v.max_holdout_evals:
+        refuse(f"{strat.id} has used its {v.max_holdout_evals} holdout looks for {window[0]}..{window[1]} "
+               "(every version, timeframe and parameter set counts). Judge it on forward paper data "
+               "instead (docs/CHARTER.md).")
+
+    journal = Journal(runtime_paths().database_url)
+    research = journal.find_research_run(instance, strat.version, hyp.params_hash,
+                                         config_hash(cfg.config_dir), REAL_SOURCES)
+    if research is None:
+        refuse(f"no finished research backtest on real data for {instance} v{strat.version} with the "
+               "current config and parameters. Run it first, e.g. `trademind backtest --source parquet "
+               f"--start 2025-05-01 --end {window[0] - timedelta(days=1)} --instances {instance}`")
+    covered = session_coverage(research["n_sessions"], research["period_start"], research["period_end"])
+    if covered < v.min_session_coverage:
+        refuse(f"research run {research['run_id']} simulated only {covered:.0%} of the weekdays in its "
+               f"period (need {v.min_session_coverage:.0%}); download the missing data and rerun it")
+
+    data = _source(cfg, source, 7, csv_root)
+    market = cfg.settings.market_symbol
+    bars = data.get_bars(market, cfg.settings.session.base_interval, first, last)
+    days = sorted(set(bars["ts"].dt.date)) if not bars.empty else []
+    if session_coverage(len(days), first, last) < v.min_session_coverage:
+        refuse(f"only {len(days)} sessions of {market} data in {first}..{last}; download the holdout "
+               "period first. No look was used.")
+
+    try:
+        holdout = run_backtest(cfg, data, first, last, journal, data_split="holdout", only={instance},
+                               source_name=source)
     except (TrademindError, ValueError) as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    typer.echo(format_report(promotion_report(journal, v, instance, strat.version, research, holdout)))
+        refuse(f"{exc}. No look was recorded.")
+    report = promotion_report(journal, v, instance, strat.version, research["run_id"], holdout,
+                              research_trials=research_trials, holdout_evals=len(looks) + 1)
+    ledger.record_look(hyp, window=window, period=(first, last), research_run_id=research["run_id"],
+                       holdout_run_id=holdout, passed=report["passed"], source=source)
+    typer.echo(format_report(report))
+    typer.echo(f"\nHoldout look {len(looks) + 1} of {v.max_holdout_evals} for {strat.id} recorded in "
+               f"{ledger.root}. Commit it now: git add ledger && git commit -m 'holdout look'")
 
 
 @app.command()
@@ -533,6 +587,15 @@ def paper_check(
     typer.echo(report)
     typer.echo(f"saved: {paths.data_dir / 'checks' / (d.isoformat() + '.md')}")
     raise typer.Exit(0 if on_live.exact else 1)
+
+
+@db_app.command("upgrade")
+def db_upgrade() -> None:
+    """Bring the journal schema to the latest revision (also done automatically on every start)."""
+    from sqlalchemy import create_engine
+
+    url = runtime_paths().database_url
+    typer.echo(f"journal: {migrate(create_engine(url))}")
 
 
 @research_app.command("postmortem")

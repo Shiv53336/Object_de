@@ -8,10 +8,11 @@ from datetime import date, timedelta
 
 import numpy as np
 
-from trademind.database.journal import Journal
+from trademind.database.journal import Journal, params_hash
 from trademind.services.backtesting.dataset import SymbolData, prepare_symbol
 from trademind.services.backtesting.session import EngineSession
 from trademind.services.instrument_registry.registry import build_instruments
+from trademind.services.learning.ledger import Hypothesis, ResearchLedger, ledger_dir
 from trademind.services.market_data.source import DataSource
 from trademind.services.paper_broker.broker import PaperBroker
 from trademind.services.risk_engine.engine import RiskEngine
@@ -24,17 +25,31 @@ from trademind.shared.models import Instrument
 log = logging.getLogger(__name__)
 
 
+SPLITS = ("research", "holdout", "forward", "replay")
+
+
 def check_split(cfg: AppConfig, start: date, end: date, data_split: str) -> None:
-    holdout = cfg.settings.validation.holdout_start
+    """research ends before the holdout; holdout stays inside its fixed window; forward and replay
+    (live paper days) start after it ends (DECISIONS D29)."""
+    v = cfg.settings.validation
     if start > end:
         raise ValueError("start must be on or before end")
-    if data_split == "research" and end >= holdout:
-        raise HoldoutAccessError(
-            f"research runs must end before the holdout start {holdout}; "
-            "use `trademind validate` for out-of-sample evaluation"
-        )
-    if data_split == "holdout" and start < holdout:
-        raise ValueError(f"holdout runs must start on or after {holdout}")
+    if data_split == "research":
+        if end >= v.holdout_start:
+            raise HoldoutAccessError(
+                f"research runs must end before the holdout start {v.holdout_start}; "
+                "use `trademind validate` for out-of-sample evaluation"
+            )
+    elif data_split == "holdout":
+        if start < v.holdout_start or end > v.holdout_end:
+            raise ValueError(f"holdout runs must lie within {v.holdout_start}..{v.holdout_end}")
+    elif data_split in ("forward", "replay"):
+        if start <= v.holdout_end:
+            raise HoldoutAccessError(
+                f"{data_split} runs must start after the holdout window ends ({v.holdout_end})"
+            )
+    else:
+        raise ValueError(f"unknown data split {data_split!r}; expected one of {', '.join(SPLITS)}")
 
 
 def run_backtest(
@@ -106,21 +121,29 @@ def run_backtest(
                 r_by_instance[t.instance_id].append(t.r_multiple)
             if progress:
                 progress(day, k + 1, len(sessions))
+        ledger = ResearchLedger(ledger_dir(cfg))
         for x in instances:
             r = r_by_instance[x.instance_id]
+            params = x.params.model_dump(mode="json")
+            if data_split == "research":
+                ledger.record_hypothesis(
+                    Hypothesis(x.id, x.version, x.timeframe, params_hash(params)),
+                    run_id=run_id, period_start=start, period_end=end, source=source_name,
+                )
             journal.log_trial(
                 run_id=run_id,
                 strategy_id=x.id,
                 strategy_version=x.version,
                 timeframe=x.timeframe,
-                params=x.params.model_dump(mode="json"),
+                params=params,
                 data_split=data_split,
                 period_start=start,
                 period_end=end,
                 n_trades=len(r),
                 expectancy_r=float(np.mean(r)) if r else None,
             )
-        journal.finish_run(run_id, status="done", n_signals=n_signals, n_trades=n_trades)
+        journal.finish_run(run_id, status="done", n_signals=n_signals, n_trades=n_trades,
+                           sessions=sessions)
     except Exception:
         journal.finish_run(run_id, status="failed", n_signals=n_signals, n_trades=n_trades)
         raise
