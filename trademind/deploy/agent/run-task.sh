@@ -5,14 +5,16 @@
 # Which account pays (docs/AGENT.md, "Cost and auth"):
 #   1. The Claude subscription (Pro/Max), when CLAUDE_CODE_OAUTH_TOKEN is set. No per-token cost.
 #   2. Amazon Bedrock, when there is no subscription token or its usage limit stopped the run, and only
-#      while this month's Bedrock spend is below AGENT_BEDROCK_MONTHLY_USD. The spend ledger lives on
-#      the runner; each Bedrock run is also capped at what is left of the month's allowance.
+#      while this month's Bedrock spend is below AGENT_BEDROCK_MONTHLY_USD (default 0: off). The spend
+#      ledger lives on the runner and fails closed: unreadable means no fallback. The ledger is only a
+#      convenience, since the agent can write to it; the hard limit is AWS-side (Terraform gives the
+#      role no Bedrock access at 0, and a budget action denies it once the month's cap is reached).
 set -euo pipefail
 
 : "${TASK:?the request is empty}"
 OUT="${RUNNER_TEMP:-/tmp}/agent"
 LEDGER="${AGENT_LEDGER:-$HOME/tm-data/agent-bedrock-spend.csv}"
-CAP="${AGENT_BEDROCK_MONTHLY_USD:-20}"
+CAP="${AGENT_BEDROCK_MONTHLY_USD:-0}"
 BUDGET="${BUDGET_USD:-3}"
 ALIAS="${MODEL_ALIAS:-sonnet}"
 BEDROCK_MODEL="${BEDROCK_MODEL:-global.anthropic.claude-sonnet-5-5}"
@@ -73,7 +75,10 @@ if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
 fi
 
 if [ -z "$ran" ]; then
-  spent=$(python3 "$LOG" spend-month "$LEDGER")
+  if ! spent=$(python3 "$LOG" spend-month "$LEDGER"); then
+    spent="$CAP"  # unreadable ledger: fail closed
+    note="$note The Bedrock spend ledger could not be read, so the fallback is off."
+  fi
   left=$(python3 -c "print(round(max(0.0, $CAP - $spent), 2))")
   if [ -z "${AWS_REGION:-}" ]; then
     note="$note No Bedrock fallback: the TRADEMIND_AGENT_ROLE_ARN variable is not set."

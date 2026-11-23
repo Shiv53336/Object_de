@@ -56,17 +56,30 @@ def test_sudo_rule_allows_only_two_fixed_scripts_without_arguments():
     ]
 
 
-def test_workflow_keeps_github_token_away_from_claude():
+def test_workflow_keeps_write_access_off_the_agent_machine():
     wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    task = wf["jobs"]["task"]
-    assert task["runs-on"] == ["self-hosted", "trademind"]
+    jobs = wf["jobs"]
+    assert wf["permissions"] == {"contents": "read"}
     assert wf["concurrency"]["group"] == "trademind-agent"
-    steps = {s.get("name") or s.get("uses"): s for s in task["steps"]}
+    task = jobs["task"]
+    assert task["runs-on"] == ["self-hosted", "trademind"]
+    assert task["permissions"] == {"contents": "read", "id-token": "write"}
+    assert "github.token" not in json.dumps(task) and "GH_TOKEN" not in json.dumps(task)
     checkout = next(s for s in task["steps"] if str(s.get("uses", "")).startswith("actions/checkout"))
     assert checkout["with"]["persist-credentials"] is False
-    claude = steps["Claude Code"]
-    assert "github.token" not in json.dumps(claude) and "GH_TOKEN" not in claude.get("env", {})
-    assert "GH_TOKEN" in steps["Push branch and open pull request"]["env"]
+    # verify runs the agent's code: GitHub-hosted, read-only, no credentials kept
+    verify = jobs["verify"]
+    assert verify["runs-on"] == "ubuntu-latest" and verify["permissions"] == {"contents": "read"}
+    assert all(s.get("with", {}).get("persist-credentials") is False
+               for s in verify["steps"] if str(s.get("uses", "")).startswith("actions/checkout"))
+    # publish holds the write token and executes nothing from the agent's changes
+    publish = jobs["publish"]
+    assert publish["runs-on"] == "ubuntu-latest"
+    assert publish["permissions"] == {"contents": "write", "pull-requests": "write"}
+    runs = [s["run"] for s in publish["steps"] if "run" in s]
+    assert runs == ["deploy/agent/publish.sh"]
+    for job in ("status", "deploy"):
+        assert jobs[job]["permissions"] == {"contents": "read"}
 
 
 def test_run_task_unsets_credentials_before_claude():
@@ -165,7 +178,10 @@ def test_workflow_passes_plan_token_only_to_claude():
     with_token = [s.get("name") for s in task["steps"] if "CLAUDE_CODE_OAUTH_TOKEN" in json.dumps(s)]
     assert with_token == ["Claude Code"]
     aws = next(s for s in task["steps"] if "configure-aws-credentials" in str(s.get("uses", "")))
-    assert aws["if"] == "vars.TRADEMIND_AGENT_ROLE_ARN != ''"
+    assert "vars.TRADEMIND_AGENT_ROLE_ARN != ''" in aws["if"]
+    assert "vars.AGENT_BEDROCK_MONTHLY_USD != '0'" in aws["if"]
+    claude = next(s for s in task["steps"] if s.get("name") == "Claude Code")
+    assert claude["env"]["AGENT_BEDROCK_MONTHLY_USD"] == "${{ vars.AGENT_BEDROCK_MONTHLY_USD || '0' }}"
 
 
 @posix_only
@@ -176,15 +192,53 @@ def test_publish_refuses_a_diff_with_a_credential(tmp_path):
     def git(*args: str) -> None:
         subprocess.run(["git", *args], cwd=tmp_path, env=git_env, check=True, capture_output=True)
 
-    git("init", "-q")
-    (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
-    git("add", ".")
-    git("commit", "-qm", "base")
-    git("update-ref", "refs/remotes/origin/main", "HEAD")
-    (tmp_path / "a.txt").write_text("hello\ntoken = sk-ant-oat01-abcdefghijklmnop\n", encoding="utf-8")
-    git("commit", "-qam", "leak")
-    env = {**git_env, "BRANCH": "agent/1", "RUNNER_TEMP": str(tmp_path), "GH_TOKEN": "x"}
-    out = subprocess.run(["bash", str(AGENT / "publish.sh")], env=env, cwd=tmp_path,
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git("init", "-q", str(repo))
+
+    def in_repo(*args: str) -> None:
+        git("-C", str(repo), *args)
+
+    (repo / "a.txt").write_text("hello\n", encoding="utf-8")
+    in_repo("add", ".")
+    in_repo("commit", "-qm", "base")
+    in_repo("update-ref", "refs/remotes/origin/main", "HEAD")
+    (repo / "a.txt").write_text("hello\ntoken = sk-ant-oat01-abcdefghijklmnop\n", encoding="utf-8")
+    in_repo("commit", "-qam", "leak")
+    env = {**git_env, "BRANCH": "agent/1", "RUNNER_TEMP": str(tmp_path), "GH_TOKEN": "x",
+           "GITHUB_OUTPUT": str(tmp_path / "out.txt")}
+    bundled = subprocess.run(["bash", str(AGENT / "bundle.sh")], env=env, cwd=repo, capture_output=True,
+                             text=True, encoding="utf-8")
+    assert bundled.returncode == 0, bundled.stderr
+    assert "changed=true" in (tmp_path / "out.txt").read_text(encoding="utf-8")
+    assert (tmp_path / "agent-out" / "agent.bundle").exists()
+    out = subprocess.run(["bash", str(AGENT / "publish.sh")], env=env, cwd=repo,
                          capture_output=True, text=True, encoding="utf-8")
     assert out.returncode == 1
     assert "looks like a credential" in out.stderr
+
+
+@posix_only
+def test_bundle_reports_no_changes(tmp_path):
+    git_env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "base"],
+                 ["update-ref", "refs/remotes/origin/main", "HEAD"]):
+        subprocess.run(["git", *args], cwd=repo, env=git_env, check=True, capture_output=True)
+    env = {**git_env, "RUNNER_TEMP": str(tmp_path / "rt"), "GITHUB_OUTPUT": str(tmp_path / "out.txt")}
+    out = subprocess.run(["bash", str(AGENT / "bundle.sh")], env=env, cwd=repo, capture_output=True,
+                         text=True, encoding="utf-8")
+    assert out.returncode == 0 and "changed=false" in (tmp_path / "out.txt").read_text(encoding="utf-8")
+    assert not (tmp_path / "rt" / "agent-out" / "agent.bundle").exists()
+
+
+def test_bedrock_ledger_fails_closed_on_a_damaged_line(tmp_path):
+    from datetime import UTC, datetime
+
+    ledger = tmp_path / "spend.csv"
+    ledger.write_text(f"{datetime.now(UTC):%Y-%m}-01T00:00:00Z,abc\n", encoding="utf-8")
+    out = subprocess.run([sys.executable, str(AGENT / "agentlog.py"), "spend-month", str(ledger)],
+                         capture_output=True, text=True, encoding="utf-8", env=UTF8)
+    assert out.returncode != 0

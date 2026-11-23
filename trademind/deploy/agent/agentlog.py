@@ -149,12 +149,11 @@ def spend_month(ledger: str, now: datetime | None = None) -> float:
     month, total = _month(now), 0.0
     with open(ledger, encoding="utf-8") as fh:
         for row in fh:
+            if not row.strip():
+                continue
             stamp, _, usd = row.strip().partition(",")
             if stamp.startswith(month):
-                try:
-                    total += float(usd)
-                except ValueError:
-                    continue
+                total += float(usd)  # a damaged line raises: the caller fails closed
     return round(total, 4)
 
 

@@ -1,6 +1,6 @@
 # Task Cards
 
-Status: v4, 2026-11-17. Owner decision: build end to end; design calls are logged in `DECISIONS.md`.
+Status: v5, 2026-11-23, after the full review (`docs/reviews/2026-11-23.md`). Order and scope now follow `docs/CHARTER.md`; design calls are logged in `DECISIONS.md`.
 
 The research core is built and tested (see "Done"). The cards below are the remaining work, **in order, one card per branch**. Rules for how to work are in `../CLAUDE.md`. "PLAN x.y" and "STRATEGIES C.n" refer to the files in this folder.
 
@@ -45,16 +45,18 @@ The research core is built and tested (see "Done"). The cards below are the rema
 | T08 | Tick-to-bar aggregator | small | done |
 | T09 | Live paper runner | design first | done (`docs/design/T09-live-paper.md`) |
 | T10 | Telegram notifier | small | done |
-| T11 | Redis Streams event bus | design first | todo |
+| T11 | Redis Streams event bus | design first | dropped (nothing needs it; review 2026-11-23) |
 | T12 | AWS deployment (Terraform, EC2, SSM, backups) | design first | done (`docs/OPERATIONS.md`) |
 | T13 | LLM client and daily post-mortem | design first | done (`services/ai_research/`) |
-| T14 | Setup judge, shadow mode | design first | deferred until news exists (T16) |
-| T15 | Weekly review and hypothesis backlog | design first | done (max two proposals, never applied) |
-| T16 | News ingestion | design first | todo |
+| T14 | Setup judge, shadow mode | design first | deferred (CHARTER: only after an edge exists) |
+| T15 | Weekly review and hypothesis backlog | design first | done, paused until a strategy passes the gate |
+| T16 | News ingestion | design first | deferred (CHARTER) |
 | T17 | Market regime engine | design first | done (rule-based `market_regime` tag) |
-| T18 | Swing engine and swing_vcp | design first | todo |
+| T18 | Swing engine and swing_vcp | design first | **next** (moved up: far lower cost per R, far more data) |
 | T19 | Dashboard | design first | done (`/dashboard` on the API) |
-| T20 | Options and expiry | design first | todo |
+| T20 | Options and expiry | design first | deferred (CHARTER) |
+| T21 | Longer history, point-in-time universe, rolling periods | design first | todo (after T18 design) |
+| T22 | Strategy tests: one condition per negative test | small | todo |
 
 ---
 
@@ -147,3 +149,25 @@ Each starts with `docs/design/Txx.md` (goal, interfaces, data, costs, test plan,
 - **T18 Swing**: STRATEGIES D.1, multi-day holding, delivery costs.
 - **T19 Dashboard**: BLUEPRINT 13, over the read-only API; authenticated.
 - **T20 Options and expiry**: option data availability, a fill model for wide spreads, time decay, contract selection, multi-leg partial fills.
+
+
+---
+
+## T21 Longer history, point-in-time universe, rolling periods [design first]
+
+One research year and 12 of today's large caps give about 150 trades per strategy, chosen with hindsight (survivorship). Design note first:
+
+- Download several more years of 1-minute candles (as far back as Kite serves them) and move `research` to start there; the holdout window stays fixed (D29).
+- Universe by date: the stocks that were in the index or the top-N by turnover on each day, not today's list. Source of membership history to be decided in the design note.
+- Rolling stability: report each strategy per year and per quarter (`--by year|quarter` exists) and require the edge to hold in most periods, not on average only.
+- Corporate actions: confirm with real data whether Kite candles are adjusted; fill `config/corporate_actions.yaml` from `data validate` findings.
+
+## T22 Strategy tests: one condition per negative test [small]
+
+The 2026-11-23 review found negative tests that break two conditions at once, and required tests that are missing. For each strategy in `strategy_engine/equity/`, against its `STRATEGIES.md` section:
+
+- One positive test per side with exact `side`, `stop`, `target` and required feature keys.
+- One negative test per numbered condition that breaks **only** that condition: assert that the same bars with that one change restored produce the signal.
+- A state-reset test.
+
+Do not change strategy code or parameters; if a test exposes a mismatch with the spec, stop and report it.

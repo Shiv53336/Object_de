@@ -27,6 +27,15 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+echo "== repository must be private"
+# A self-hosted runner on a public repository lets a fork's pull request run code on this machine
+# (GitHub's own guidance). An unauthenticated API call succeeds only for public repositories.
+slug="${REPO_URL#https://github.com/}"
+if curl -fsS -o /dev/null "https://api.github.com/repos/${slug}"; then
+  echo "REFUSING: ${slug} is public. Make it private first (Settings > General > Danger Zone)." >&2
+  exit 1
+fi
+
 echo "== packages"
 dnf install -y -q git tar gzip libicu python3.11 python3.11-pip iptables-nft
 if ! command -v gh >/dev/null; then

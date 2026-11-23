@@ -1,6 +1,6 @@
 # Rules for working in `trademind/`
 
-TRADEMIND is a research-first trading platform for NSE that runs on paper only. `docs/BLUEPRINT.md` is the product vision; `docs/PLAN.md` is the engineering contract; `docs/STRATEGIES.md` holds exact trading rules; `docs/TASKS.md` lists the remaining work.
+TRADEMIND is a research-first trading platform for NSE that runs on paper only. `docs/BLUEPRINT.md` is the product vision; `docs/PLAN.md` is the engineering contract; `docs/STRATEGIES.md` holds exact trading rules; `docs/TASKS.md` lists the remaining work; `docs/CHARTER.md` sets the phase gates and the decision date.
 
 ## How to work
 
@@ -22,7 +22,8 @@ TRADEMIND is a research-first trading platform for NSE that runs on paper only. 
 - **No lookahead.** A decision at a bar's close uses only data up to that bar. New features need a causality test (PLAN 5.4).
 - **Deterministic by default.** Anything random takes an explicit seed. Tests never use the network, the wall clock or real credentials.
 - **Do not tune.** Never change a strategy parameter, threshold or rule to make results look better. Parameters change only through an owner-approved spec change with a new strategy `version`.
-- **Do not read holdout data** except through `trademind validate` (PLAN 9.2).
+- **Do not read holdout data** except through `trademind validate` (PLAN 9.2, DECISIONS D29).
+- **Never edit, reorder or delete lines in `ledger/`.** The CLI appends them; they count every hypothesis and holdout look. Commit them as they are.
 - **Never weaken the agent guardrails** (`.claude/settings.json`, `deploy/agent/sudoers`, `tests/test_agent_harness.py`, the agent workflow) unless the owner asks for that change.
 - **Do not change the core** (`backtesting/session.py`, `paper_broker/broker.py`, `risk_engine/engine.py`, `strategy_engine/view.py`) unless the card says so. If a card seems to need it, stop and ask.
 
@@ -47,6 +48,9 @@ pytest -q
 ruff check .
 trademind strategies
 trademind backtest --start 2025-05-01 --end 2026-04-30 --by time_bucket
+trademind backtest --source parquet --start 2025-05-01 --end 2026-04-30 --by quarter
+trademind data validate --symbol all --start 2024-11-01 --end YYYY-MM-DD
+trademind db upgrade
 trademind preflight --for backtest --no-online
 trademind paper check --day YYYY-MM-DD
 ```
