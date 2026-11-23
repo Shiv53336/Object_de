@@ -373,6 +373,12 @@ class Journal:
             m.runs.c.period_start >= start, m.runs.c.period_end <= end)
         return self._frame(stmt.order_by(m.runs.c.period_start))
 
+    def runs_on(self, day: date, data_split: str) -> pd.DataFrame:
+        """Every run of the split covering exactly this day, whatever its status."""
+        stmt = select(m.runs).where(m.runs.c.data_split == data_split, m.runs.c.period_start == day,
+                                    m.runs.c.period_end == day)
+        return self._frame(stmt.order_by(m.runs.c.started_at))
+
     def ping(self) -> bool:
         with self.engine.connect() as cx:
             cx.execute(select(1))

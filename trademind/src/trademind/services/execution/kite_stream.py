@@ -26,7 +26,20 @@ def convert_tick(tick: dict, token_to_symbol: dict[int, str], received_at: pd.Ti
     else:
         ts = received_at
     cum = tick.get("volume_traded")
-    return sym, ts, float(price), None if cum is None else int(cum)
+    bid, ask = best_quote(tick)
+    return sym, ts, float(price), None if cum is None else int(cum), bid, ask
+
+
+def best_quote(tick: dict) -> tuple[float | None, float | None]:
+    """Best bid and ask from a MODE_FULL tick's market depth (None when absent or empty)."""
+    depth = tick.get("depth") or {}
+
+    def top(side: str) -> float | None:
+        levels = depth.get(side) or []
+        price = levels[0].get("price") if levels and isinstance(levels[0], dict) else None
+        return float(price) if price else None
+
+    return top("buy"), top("sell")
 
 
 class KiteTickStream:

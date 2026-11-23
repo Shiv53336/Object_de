@@ -97,8 +97,9 @@ def live_day(small_cfg, tmp_path_factory):
     for sym in build_instruments(s):
         store.write(sym, "1minute", src.get_bars(sym, "1minute", DAY - timedelta(days=s.backtest.warmup_days),
                                                  DAY - timedelta(days=1)))
-    trades, _, _ = _live(small_cfg, src, store, tmp_path_factory.mktemp("live"))
-    return src, store, trades
+    trades, _, runner = _live(small_cfg, src, store, tmp_path_factory.mktemp("live"))
+    live_bars = {sym: runner.live_store.read(sym, "1minute", DAY, DAY) for sym in build_instruments(s)}
+    return src, OverlaySource(store, DAY, live_bars), trades
 
 
 def test_replay_on_live_bars_matches_the_live_run(replay_cfg, live_day) -> None:
@@ -126,3 +127,32 @@ def test_replay_refuses_days_inside_the_holdout(small_cfg, live_day) -> None:
     _, store, _ = live_day
     with pytest.raises(HoldoutAccessError):
         replay_day(small_cfg, store, date(2026, 6, 1), strategies=_instances())
+
+
+def test_execution_drift_against_quotes() -> None:
+    from trademind.services.execution.paper_check import execution_drift
+
+    t0 = pd.Timestamp("2025-09-03 09:30", tz=IST)
+    trades = pd.DataFrame([
+        {"instance_id": "orb@5minute", "symbol": "AAA", "side": "LONG", "qty": 100, "risk_per_unit": 2.0,
+         "entry_ts": t0, "entry_price": 100.0, "exit_ts": t0 + pd.Timedelta(minutes=30), "exit_price": 104.0},
+        {"instance_id": "orb@5minute", "symbol": "BBB", "side": "SHORT", "qty": 50, "risk_per_unit": 1.0,
+         "entry_ts": t0, "entry_price": 50.0, "exit_ts": t0 + pd.Timedelta(minutes=10), "exit_price": 49.0},
+    ])
+    quotes = pd.DataFrame([
+        # long: bought at ask 100.2 (model 100.0), sold at bid 103.9 (model 104.0): 0.3 per share worse
+        {"symbol": "AAA", "ts": t0, "first_bid": 99.9, "first_ask": 100.2, "last_bid": 0, "last_ask": 0},
+        {"symbol": "AAA", "ts": t0 + pd.Timedelta(minutes=30), "first_bid": 103.9, "first_ask": 104.1,
+         "last_bid": 0, "last_ask": 0},
+        # short: sold at bid 50.1 (model 50.0), bought back at ask 49.0 (model 49.0): 0.1 better
+        {"symbol": "BBB", "ts": t0, "first_bid": 50.1, "first_ask": 50.2, "last_bid": 0, "last_ask": 0},
+        {"symbol": "BBB", "ts": t0 + pd.Timedelta(minutes=10), "first_bid": 48.9, "first_ask": 49.0,
+         "last_bid": 0, "last_ask": 0},
+    ])
+    d = execution_drift(trades, quotes)
+    assert d.with_quotes == 2
+    assert d.mean_r == pytest.approx((0.3 / 2.0 + -0.1 / 1.0) / 2)
+    assert d.total_rupees == pytest.approx(0.3 * 100 - 0.1 * 50)
+    assert d.worst[0]["symbol"] == "AAA"
+    assert "## 4. Execution drift" in render(DAY, "r", [], compare_trades(pd.DataFrame(), pd.DataFrame()),
+                                              None, [], d)

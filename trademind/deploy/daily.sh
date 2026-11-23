@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# Trading-day routine on the server: Telegram login, then live paper trading until 15:30.
+# Trading-day routine on the server: Telegram login, last week's candles, preflight, live paper
+# trading until 15:30, then the paper-vs-replay check.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+tm() { docker compose run --rm api trademind "$@"; }
 docker compose up -d db
-docker compose run --rm api trademind login --telegram --timeout 1800
-docker compose run --rm api trademind paper run
+tm login --telegram --timeout 1800
+# Yesterday's official candles become history; live tick bars never do.
+tm data download --start "$(date -d '7 days ago' +%F)" --end "$(date -d yesterday +%F)" \
+  || echo "warning: download failed; preflight decides whether history is fresh enough"
+tm preflight --for paper
+tm paper run
+tm paper check || echo "PAPER CHECK FAILED: keep data/checks/$(date +%F).md for review"
 # Advisory AI notes; skipped quietly when research is disabled or the budget is spent.
-docker compose run --rm api trademind research postmortem || true
-if [ "$(date +%u)" = "5" ]; then
-  docker compose run --rm api trademind research weekly || true
-fi
+tm research postmortem || true
+# The weekly AI review is paused until a strategy passes the gate (2026-11-23 review, docs/CHARTER.md).

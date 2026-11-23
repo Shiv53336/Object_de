@@ -1,7 +1,13 @@
-"""Parquet bar store and CSV source (PLAN 3). Layout: {root}/{interval}/{SYMBOL}.parquet."""
+"""Parquet bar store and CSV source (PLAN 3). Layout: {root}/{interval}/{SYMBOL}.parquet.
+
+Three stores never mix (2026-11-23 review): `data/bars` holds downloaded exchange candles and is
+the only one research and validation read; `data/bars_live` holds bars built from live ticks;
+`data/bars_synthetic` holds generated data. Writes are atomic (temp file, then rename).
+"""
 
 from __future__ import annotations
 
+import os
 from datetime import date
 from pathlib import Path
 
@@ -27,7 +33,9 @@ class ParquetStore:
             merged = pd.concat([old, new], ignore_index=True)
             new = normalize_bars(merged)
         p.parent.mkdir(parents=True, exist_ok=True)
-        new.to_parquet(p, index=False)
+        tmp = p.with_name(f"{p.name}.tmp-{os.getpid()}")
+        new.to_parquet(tmp, index=False)
+        os.replace(tmp, p)  # a crash mid-write leaves the old file intact
         return len(new)
 
     def read(self, symbol: str, interval: str, start: date, end: date) -> pd.DataFrame:

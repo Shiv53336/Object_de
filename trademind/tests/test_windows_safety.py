@@ -86,3 +86,13 @@ def test_data_validate_all_symbols() -> None:
     result = CliRunner().invoke(app, args)
     assert result.exit_code == 0, result.output
     assert "symbols clean" in result.output and "NIFTY 50: " in result.output
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="needs Windows PowerShell")
+def test_step_returns_only_the_exit_code() -> None:
+    common = ROOT / "deploy" / "windows" / "common.ps1"
+    script = (f". '{common}'; $tm = 'cmd.exe'; $r = Step 'demo' @('/c', 'echo a URL to open & exit 3'); "
+              "if (($r -is [int]) -and ($r -eq 3)) { exit 0 } else { exit 1 }")
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True,
+                         encoding="utf-8")
+    assert out.returncode == 0, out.stdout + out.stderr

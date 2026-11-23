@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import webbrowser
@@ -30,6 +31,7 @@ from trademind.services.execution.paper_check import (
     OverlaySource,
     compare_bars,
     compare_trades,
+    execution_drift,
     render,
     replay_day,
 )
@@ -43,6 +45,7 @@ from trademind.services.learning.ledger import (
 )
 from trademind.services.learning.metrics import scoreboard, to_markdown
 from trademind.services.learning.validation import format_report, promotion_report, session_coverage
+from trademind.services.market_data.adjust import AdjustedSource, overnight_jumps
 from trademind.services.market_data.source import DataSource, validate_bars
 from trademind.services.market_data.store import CsvSource, ParquetStore
 from trademind.services.market_data.synthetic import SyntheticSource
@@ -56,6 +59,7 @@ from trademind.shared.exceptions import TrademindError
 from trademind.shared.logging import setup_logging
 from trademind.shared.power import keep_awake, on_battery
 
+log = logging.getLogger(__name__)
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="TRADEMIND (paper trading only)")
 data_app = typer.Typer(no_args_is_help=True, help="Market data tools")
 paper_app = typer.Typer(no_args_is_help=True, help="Live paper trading (simulated fills only)")
@@ -122,15 +126,15 @@ def _source(cfg: AppConfig, name: str, seed: int, csv_root: Path | None) -> Data
     if name == "synthetic":
         return SyntheticSource(seed, build_instruments(s), s.session, s.market_symbol)
     if name == "parquet":
-        return ParquetStore(runtime_paths().bars_dir)
+        return AdjustedSource(ParquetStore(runtime_paths().bars_dir), cfg.corporate_actions)
     if name == "csv":
         if csv_root is None:
             raise typer.BadParameter("--csv-root is required for --source csv")
-        return CsvSource(csv_root)
+        return AdjustedSource(CsvSource(csv_root), cfg.corporate_actions)
     if name == "kite":
         today = _now().date()
         _, _, gateway, directory = _kite(today)
-        return KiteSource(gateway, directory)
+        return AdjustedSource(KiteSource(gateway, directory), cfg.corporate_actions)
     raise typer.BadParameter(f"unknown source {name!r}")
 
 
@@ -365,11 +369,11 @@ def data_synth(
     seed: int = 7,
     config_dir: ConfigDir = None,
 ) -> None:
-    """Write synthetic base bars for the universe into the Parquet store."""
+    """Write synthetic base bars into data/bars_synthetic (never into the research store)."""
     cfg = load_config(config_dir)
     s = cfg.settings
     src = SyntheticSource(seed, build_instruments(s), s.session, s.market_symbol)
-    store = ParquetStore(runtime_paths().bars_dir)
+    store = ParquetStore(runtime_paths().synthetic_bars_dir)
     for sym in build_instruments(s):
         n = store.write(sym, s.session.base_interval, src.get_bars(sym, s.session.base_interval,
                                                                    _date(start), _date(end)))
@@ -432,20 +436,27 @@ def paper_run(
     today = _now().date()
     key, token, gateway, directory = _kite(today)
     instruments = _kite_instruments(cfg, directory, today)
-    store = ParquetStore(runtime_paths().bars_dir)
-    journal = Journal(runtime_paths().database_url)
+    paths = runtime_paths()
+    store = AdjustedSource(ParquetStore(paths.bars_dir), cfg.corporate_actions)
+    journal = Journal(paths.database_url)
     notifier = Notifier()
+    candles = KiteSource(gateway, directory)
+
+    def fetch_minutes(symbols: list[str], start: pd.Timestamp, now: pd.Timestamp) -> dict:
+        return {sym: candles.get_bars(sym, s.session.base_interval, today, today) for sym in symbols}
+
     try:
         runner = LivePaperRunner(cfg, store, journal, build_instances(cfg.strategies), today,
-                                 notifier=notifier, instruments=instruments, grace_seconds=grace)
+                                 notifier=notifier, instruments=instruments, grace_seconds=grace,
+                                 live_store=ParquetStore(paths.live_bars_dir),
+                                 fetch_minutes=fetch_minutes)
     except TrademindError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(2) from exc
     syms = list(runner._today)
     now = _now()
     if now > at(today, s.session.open):
-        src = KiteSource(gateway, directory)
-        bars = {sym: src.get_bars(sym, s.session.base_interval, today, today) for sym in syms}
+        bars = {sym: candles.get_bars(sym, s.session.base_interval, today, today) for sym in syms}
         n = runner.backfill(bars, now)
         typer.echo(f"backfilled {n} bars")
     stream = KiteTickStream(key, token, {directory.token(sym): sym for sym in syms}, runner.on_ticks, _now)
@@ -461,8 +472,16 @@ def paper_run(
                 runner.poll(_now())
                 time.sleep(1)
         except KeyboardInterrupt:
-            typer.echo("stopping early: closing open paper positions at the last bar")
-            runner.finish()
+            typer.echo("stopping early: positions close at the last bar; the day will not count")
+            runner.finish(status="stopped")
+        except Exception as exc:
+            notifier.error(f"paper run crashed: {type(exc).__name__}: {exc}. Restart `trademind paper run`; "
+                           "it backfills the missed minutes.")
+            try:
+                runner.finish(status="crashed")
+            except Exception:  # keep the original error
+                log.exception("could not record the crashed run")
+            raise
         finally:
             stream.stop()
     typer.echo(runner.summary(runner.result) if runner.result else "no result")
@@ -545,8 +564,11 @@ def paper_check(
     run = runs.iloc[-1]
     run_id, instance_ids = str(run["run_id"]), list(run["instances"] or [])
     live_trades = journal.read_trades(run_id)
-    store = ParquetStore(paths.bars_dir)
+    store = AdjustedSource(ParquetStore(paths.bars_dir), cfg.corporate_actions)
+    live_store = ParquetStore(paths.live_bars_dir)
     notes: list[str] = []
+    if run.get("notes"):
+        notes.append(f"Stream health during the run: {run['notes']}")
 
     official: dict[str, pd.DataFrame] = {}
     instruments = None
@@ -561,18 +583,22 @@ def paper_check(
     if instruments is None:
         notes.append("Lot sizes come from config; if Kite's differ, quantities and P&L will differ too.")
 
-    out_dir = paths.data_dir / "checks" / d.isoformat()
     bar_diffs = []
+    live_bars: dict[str, pd.DataFrame] = {}
     for sym, inst in (instruments or build_instruments(s)).items():
-        live = store.read(sym, s.session.base_interval, d, d)
-        if not live.empty:
-            (out_dir / "live_bars").mkdir(parents=True, exist_ok=True)
-            live.to_parquet(out_dir / "live_bars" / f"{sym.replace(' ', '_')}.parquet", index=False)
-        if sym in official and not official[sym].empty and not live.empty:
+        live = live_store.read(sym, s.session.base_interval, d, d)
+        if live.empty:
+            continue
+        live_bars[sym] = live
+        if sym in official and not official[sym].empty:
             bar_diffs.append(compare_bars(sym, live, official[sym], inst.tick_size))
+    if not live_bars:
+        typer.echo(f"error: no live bars for {d} in {paths.live_bars_dir}", err=True)
+        raise typer.Exit(2)
 
     try:
-        on_live = compare_trades(live_trades, replay_day(cfg, store, d, instance_ids, instruments))
+        on_live = compare_trades(live_trades, replay_day(cfg, OverlaySource(store, d, live_bars), d,
+                                                         instance_ids, instruments))
         on_official = None
         if official:
             overlay = OverlaySource(store, d, {k: v for k, v in official.items() if not v.empty})
@@ -580,9 +606,10 @@ def paper_check(
     except TrademindError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(2) from exc
+    drift = execution_drift(live_trades, journal.read_quotes(run_id))
 
-    report = render(d, run_id, bar_diffs, on_live, on_official, notes)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    report = render(d, run_id, bar_diffs, on_live, on_official, notes, drift)
+    (paths.data_dir / "checks").mkdir(parents=True, exist_ok=True)
     (paths.data_dir / "checks" / f"{d.isoformat()}.md").write_text(report, encoding="utf-8")
     typer.echo(report)
     typer.echo(f"saved: {paths.data_dir / 'checks' / (d.isoformat() + '.md')}")
@@ -666,6 +693,9 @@ def data_validate(
     for sym in symbols:
         df = src.get_bars(sym, s.session.base_interval, _date(start), _date(end))
         problems = validate_bars(df, s.session, s.session.base_minutes)
+        if sym not in {i.symbol for i in s.universe.indices}:
+            problems += [f"possible split or bonus on {d}: open / previous close = {r:.2f}. If it is one, "
+                         "add it to config/corporate_actions.yaml" for d, r in overnight_jumps(df)]
         typer.echo(f"{sym}: {len(df)} bars")
         typer.echo("  " + "\n  ".join(problems) if problems else "  OK")
         if df.empty or any(not p.startswith("info:") for p in problems):
